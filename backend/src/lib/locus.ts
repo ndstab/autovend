@@ -45,13 +45,23 @@ class LocusClient {
       body: body ? JSON.stringify(body) : undefined,
     });
 
+    const text = await res.text();
+
     if (!res.ok) {
-      const text = await res.text();
       return { success: false, data: null as T, error: text };
     }
 
-    const data = await res.json();
-    return { success: true, data };
+    // Guard against HTML responses (wrong URL, auth redirect, etc.)
+    if (text.trimStart().startsWith("<")) {
+      return { success: false, data: null as T, error: "Locus API returned HTML — check LOCUS_API_URL and credentials" };
+    }
+
+    try {
+      const data = JSON.parse(text);
+      return { success: true, data };
+    } catch {
+      return { success: false, data: null as T, error: `Invalid JSON response: ${text.slice(0, 100)}` };
+    }
   }
 
   // ─── Wallets ──────────────────────────────────────────────

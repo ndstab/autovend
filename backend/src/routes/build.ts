@@ -23,39 +23,42 @@ buildRouter.post("/", async (req: Request, res: Response) => {
   const apiId = nanoid(12);
   const price = price_usd || 0.05;
 
+  // 1. Try to create sub-wallet — gracefully skip if Locus unavailable
+  let walletId: string | undefined;
   try {
-    // 1. Create sub-wallet for this build with $2 spending cap
     const subWallet = await locus.createSubWallet(
       process.env.LOCUS_WALLET_ID || "",
       `build-${apiId}`,
-      2.0 // max $2 per build
+      2.0
     );
-
-    const walletId = subWallet.success ? subWallet.data.id : undefined;
-
-    // 2. Insert API record as 'building'
-    createApi({
-      id: apiId,
-      creator_id,
-      name: "", // will be updated after parse
-      description,
-      price_usd: price,
-      wallet_id: walletId,
-    });
-
-    // Return immediately — build happens async
-    res.json({
-      api_id: apiId,
-      status: "building",
-      message: "Build pipeline started",
-    });
-
-    // 3. Run build pipeline in background
-    runBuildPipeline(apiId, description, walletId || "", creator_id, price);
+    if (subWallet.success) {
+      walletId = subWallet.data.id;
+    } else {
+      console.warn(`[${apiId}] Sub-wallet creation skipped: ${subWallet.error}`);
+    }
   } catch (err) {
-    console.error("Build trigger failed:", err);
-    res.status(500).json({ error: "Failed to start build" });
+    console.warn(`[${apiId}] Sub-wallet creation failed, continuing without:`, err);
   }
+
+  // 2. Insert API record as 'building'
+  createApi({
+    id: apiId,
+    creator_id,
+    name: "",
+    description,
+    price_usd: price,
+    wallet_id: walletId,
+  });
+
+  // Return immediately — build happens async
+  res.json({
+    api_id: apiId,
+    status: "building",
+    message: "Build pipeline started",
+  });
+
+  // 3. Run build pipeline in background
+  runBuildPipeline(apiId, description, walletId || "", creator_id, price);
 });
 
 /**
