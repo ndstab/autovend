@@ -64,7 +64,10 @@
       "WebFetch(domain:beta-api.paywithlocus.com)",
       "Bash(curl -s https://beta-api.paywithlocus.com/api/skills/skill.md)",
       "Bash(curl -s https://paywithlocus.com/skill.md)",
-      "Bash(curl -s https://paywithlocus.com/llms.txt)"
+      "Bash(curl -s https://paywithlocus.com/llms.txt)",
+      "Bash(curl -s https://beta-api.paywithlocus.com/api/wrapped -H 'Authorization: Bearer __CMDSUB_OUTPUT__')",
+      "Bash(curl -s \"https://paywithlocus.com/wapi/anthropic.md\")",
+      "Bash(curl -s \"https://paywithlocus.com/wapi/exa.md\")"
     ]
   }
 }

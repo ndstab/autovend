@@ -182,7 +182,7 @@ class LocusClient {
     if (system) body.system = system;
     return this.callWrapped<{ content: Array<{ text: string }>; usage: unknown }>(
       "anthropic",
-      "messages",
+      "chat",
       body
     );
   }
@@ -192,7 +192,7 @@ class LocusClient {
     return this.callWrapped<{ results: Array<{ title: string; url: string; text: string }>}>(
       "exa",
       "search",
-      { query, num_results: numResults }
+      { query, numResults }
     );
   }
 
