@@ -1,0 +1,71 @@
+const API_BASE = import.meta.env.VITE_API_URL || "";
+
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || res.statusText);
+  }
+  return res.json();
+}
+
+// ─── Build ──────────────────────────────────────────────────
+
+export function triggerBuild(description: string, creatorId: string, priceUsd?: number) {
+  return request<{ api_id: string; status: string; message: string }>("POST", "/api/build", {
+    description,
+    creator_id: creatorId,
+    price_usd: priceUsd,
+  });
+}
+
+export function getBuildStatus(apiId: string) {
+  return request<{
+    id: string;
+    name: string;
+    status: string;
+    endpoint: string | null;
+    build_cost: number;
+  }>("GET", `/api/build/${apiId}/status`);
+}
+
+// ─── APIs ───────────────────────────────────────────────────
+
+export interface ApiRecord {
+  id: string;
+  creator_id: string;
+  name: string;
+  description: string;
+  endpoint: string | null;
+  price_usd: number;
+  wallet_id: string | null;
+  agent_id: string | null;
+  status: string;
+  build_cost: number;
+  created_at: number;
+}
+
+export function listApis() {
+  return request<{ apis: ApiRecord[] }>("GET", "/api/apis");
+}
+
+export function listCreatorApis(creatorId: string) {
+  return request<{ apis: ApiRecord[] }>("GET", `/api/apis/creator/${creatorId}`);
+}
+
+// ─── Dashboard ──────────────────────────────────────────────
+
+export interface DashboardStats {
+  total_apis: number;
+  total_revenue: number;
+  total_costs: number;
+  total_calls: number;
+}
+
+export function getDashboard(creatorId: string) {
+  return request<{ stats: DashboardStats; apis: ApiRecord[] }>("GET", `/api/dashboard/${creatorId}`);
+}
