@@ -24,6 +24,8 @@ export default function Build() {
   const [error, setError] = useState<string | null>(null);
   const [inputDesc, setInputDesc] = useState(description);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stepTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const hasStarted = useRef(false);
 
   const [steps, setSteps] = useState<BuildStep[]>([
     { id: "parse", label: "Parsing description", status: "pending" },
@@ -34,13 +36,15 @@ export default function Build() {
     { id: "live", label: "Activating endpoint", status: "pending" },
   ]);
 
-  // Auto-start build if description came from landing
+  // Auto-start build if description came from landing (fire once only)
   useEffect(() => {
-    if (description && !apiId) {
+    if (description && !hasStarted.current) {
+      hasStarted.current = true;
       startBuild(description);
     }
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
+      stepTimers.current.forEach(clearTimeout);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -59,15 +63,24 @@ export default function Build() {
       setApiId(result.api_id);
       startPolling(result.api_id);
     } catch (err) {
+      // Cancel step animation timers
+      stepTimers.current.forEach(clearTimeout);
       setError(err instanceof Error ? err.message : "Build failed");
       setApiStatus("failed");
+      // Mark active step as error
+      setSteps((s) => s.map((step) => ({
+        ...step,
+        status: step.status === "active" ? "error" : step.status,
+      })));
     }
   }
 
   function simulateSteps() {
+    stepTimers.current.forEach(clearTimeout);
+    stepTimers.current = [];
     const delays = [500, 2000, 5000, 8000, 10000, 12000];
     steps.forEach((_, i) => {
-      setTimeout(() => {
+      const t = setTimeout(() => {
         setSteps((prev) =>
           prev.map((s, j) => ({
             ...s,
@@ -75,6 +88,7 @@ export default function Build() {
           }))
         );
       }, delays[i]);
+      stepTimers.current.push(t);
     });
   }
 

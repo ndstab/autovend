@@ -60,7 +60,11 @@
       "WebFetch(domain:synthedge.xyz)",
       "Bash(npm create:*)",
       "Bash(npx vite:*)",
-      "Bash(timeout 4 npx tsx src/index.ts)"
+      "Bash(timeout 4 npx tsx src/index.ts)",
+      "WebFetch(domain:beta-api.paywithlocus.com)",
+      "Bash(curl -s https://beta-api.paywithlocus.com/api/skills/skill.md)",
+      "Bash(curl -s https://paywithlocus.com/skill.md)",
+      "Bash(curl -s https://paywithlocus.com/llms.txt)"
     ]
   }
 }

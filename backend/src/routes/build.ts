@@ -10,7 +10,7 @@ export const buildRouter = Router();
 /**
  * POST /api/build
  * Trigger the full build pipeline:
- * description → parse → codegen → deploy → x402 → live
+ * description → codegen (via Locus wrapped Anthropic) → deploy → x402 → live
  */
 buildRouter.post("/", async (req: Request, res: Response) => {
   const { description, creator_id, price_usd } = req.body;
@@ -23,52 +23,32 @@ buildRouter.post("/", async (req: Request, res: Response) => {
   const apiId = nanoid(12);
   const price = price_usd || 0.05;
 
-  // 1. Try to create sub-wallet — gracefully skip if Locus unavailable
-  let walletId: string | undefined;
-  try {
-    const subWallet = await locus.createSubWallet(
-      process.env.LOCUS_WALLET_ID || "",
-      `build-${apiId}`,
-      2.0
-    );
-    if (subWallet.success) {
-      walletId = subWallet.data.id;
-    } else {
-      console.warn(`[${apiId}] Sub-wallet creation skipped: ${subWallet.error}`);
-    }
-  } catch (err) {
-    console.warn(`[${apiId}] Sub-wallet creation failed, continuing without:`, err);
-  }
-
-  // 2. Insert API record as 'building'
+  // Insert record immediately so status polling works
   createApi({
     id: apiId,
     creator_id,
     name: "",
     description,
     price_usd: price,
-    wallet_id: walletId,
+    wallet_id: process.env.LOCUS_WALLET_ID,
   });
 
-  // Return immediately — build happens async
-  res.json({
-    api_id: apiId,
-    status: "building",
-    message: "Build pipeline started",
-  });
+  // Return immediately — build runs async
+  res.json({ api_id: apiId, status: "building", message: "Build pipeline started" });
 
-  // 3. Run build pipeline in background
-  runBuildPipeline(apiId, description, walletId || "", creator_id, price);
+  // Run pipeline in background
+  runBuildPipeline(apiId, description, creator_id, price);
 });
 
 /**
  * GET /api/build/:id/status
- * Check build progress
  */
 buildRouter.get("/:id/status", async (req: Request, res: Response) => {
   const id = req.params.id as string;
   const db = (await import("../db/schema.js")).getDb();
-  const api = db.prepare("SELECT id, name, status, endpoint, build_cost FROM apis WHERE id = ?").get(id);
+  const api = db
+    .prepare("SELECT id, name, status, endpoint, build_cost FROM apis WHERE id = ?")
+    .get(id);
 
   if (!api) {
     res.status(404).json({ error: "API not found" });
@@ -77,73 +57,78 @@ buildRouter.get("/:id/status", async (req: Request, res: Response) => {
   res.json(api);
 });
 
+/**
+ * POST /api/build/register
+ * Helper: register a new Locus agent and return the real claw_ API key.
+ * Call this once during setup if you only have the ownerPrivateKey.
+ */
+buildRouter.post("/register", async (_req: Request, res: Response) => {
+  const result = await locus.register("AutoVend Platform", "platform@autovend.ai");
+  if (result.success) {
+    res.json({
+      message: "Agent registered. Save your apiKey — it starts with 'claw_'.",
+      apiKey: result.data.apiKey,
+      walletAddress: result.data.walletAddress,
+    });
+  } else {
+    res.status(500).json({ error: result.error });
+  }
+});
+
 // ─── Background pipeline ────────────────────────────────────
 
 async function runBuildPipeline(
   apiId: string,
   description: string,
-  walletId: string,
-  creatorId: string,
+  _creatorId: string,
   priceUsd: number
 ) {
   let totalCost = 0;
 
   try {
-    // Step 1: Parse + Codegen (AI generates the service)
+    // Step 1: Codegen via Locus wrapped Anthropic (falls back to direct API)
     console.log(`[${apiId}] Starting codegen...`);
-    const { name, code, dockerfile, cost } = await buildApi(description, walletId);
+    const { name, code, dockerfile, requirements, cost } = await buildApi(description);
     totalCost += cost;
 
-    // Update name
-    updateApiStatus(apiId, "building", { build_cost: totalCost });
+    // Update name in DB
+    const db = (await import("../db/schema.js")).getDb();
+    db.prepare("UPDATE apis SET name = ? WHERE id = ?").run(name, apiId);
 
-    // Step 2: Deploy to Locus
+    // Step 2: Deploy (Locus Deploy / mock)
     console.log(`[${apiId}] Deploying...`);
     const deployment = await deployService({
       apiId,
       name,
       code,
       dockerfile,
+      requirements,
       priceUsd,
-      creatorWalletId: walletId,
     });
 
-    // Step 3: Register x402 payment gate
-    if (deployment.url) {
-      await locus.registerX402Endpoint({
-        endpoint_url: deployment.url,
-        price_per_call: priceUsd,
-        recipient_wallet_id: walletId,
-        description,
-      });
-    }
+    // Step 3: Register x402 — if we have a real slug from Locus, great; otherwise skip
+    // x402 endpoints are managed in the Locus dashboard for now
+    console.log(`[${apiId}] Endpoint: ${deployment.url}`);
 
-    // Step 4: Register agent identity
-    const agent = await locus.registerAgent({
-      name,
-      description,
-      endpoint: deployment.url || "",
-      wallet_id: walletId,
-    });
-
-    // Step 5: Mark as live
+    // Step 4: Mark live
     updateApiStatus(apiId, "live", {
       endpoint: deployment.url,
-      agent_id: agent.success ? agent.data.agent_id : undefined,
       build_cost: totalCost,
     });
 
-    // Record build cost as an earning (negative)
-    recordEarning({
-      id: nanoid(12),
-      api_id: apiId,
-      amount: -totalCost,
-      type: "build_cost",
-    });
+    // Step 5: Record build cost earning
+    if (totalCost > 0) {
+      recordEarning({
+        id: nanoid(12),
+        api_id: apiId,
+        amount: -totalCost,
+        type: "build_cost",
+      });
+    }
 
     console.log(`[${apiId}] Live at ${deployment.url}`);
   } catch (err) {
     console.error(`[${apiId}] Build failed:`, err);
-    updateApiStatus(apiId, "failed", { build_cost: totalCost });
+    updateApiStatus(apiId, "failed");
   }
 }

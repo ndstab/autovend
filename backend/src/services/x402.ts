@@ -1,19 +1,23 @@
 import { locus } from "../lib/locus.js";
 
 /**
- * Register a deployed API endpoint with x402 payment gate
- * This makes the endpoint pay-per-call — callers must pay USDC to use it
+ * Call any x402-gated endpoint via Locus.
+ * Locus handles the USDC payment automatically.
  */
-export async function setupPaymentGate(config: {
-  endpointUrl: string;
-  pricePerCall: number;
-  recipientWalletId: string;
-  apiDescription: string;
-}) {
-  return locus.registerX402Endpoint({
-    endpoint_url: config.endpointUrl,
-    price_per_call: config.pricePerCall,
-    recipient_wallet_id: config.recipientWalletId,
-    description: config.apiDescription,
-  });
+export async function callX402(url: string, body?: unknown) {
+  return locus.callX402Url(url, "POST", body);
+}
+
+/**
+ * Call a registered x402 slug endpoint.
+ */
+export async function callX402Slug(slug: string, body: unknown) {
+  return locus.callX402Slug(slug, body);
+}
+
+/**
+ * Get the list of available x402 endpoints from Locus.
+ */
+export async function getX402Catalog() {
+  return locus.getX402EndpointsMd();
 }
