@@ -3,12 +3,13 @@ import { useNavigate } from "react-router-dom";
 import Card from "../components/Card";
 import StatusBadge from "../components/StatusBadge";
 import { getDashboard, getBalance, createFundSession, type DashboardStats, type ApiRecord } from "../lib/api";
-
-const CREATOR_ID = "demo_user";
-const CREATOR_EMAIL = "creator@autovend.ai";
+import { useAuth } from "../lib/auth";
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const creatorId = user!.id;
+  const creatorEmail = user!.email;
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [apis, setApis] = useState<ApiRecord[]>([]);
   const [balance, setBalance] = useState<number>(0);
@@ -31,8 +32,8 @@ export default function Dashboard() {
   async function loadAll() {
     try {
       const [dashData, balData] = await Promise.all([
-        getDashboard(CREATOR_ID),
-        getBalance(CREATOR_ID),
+        getDashboard(creatorId),
+        getBalance(creatorId),
       ]);
       setStats(dashData.stats);
       setApis(dashData.apis);
@@ -52,7 +53,7 @@ export default function Dashboard() {
     // Open the window synchronously BEFORE the async call — Safari allows this
     const tab = window.open("about:blank", "_blank");
     try {
-      const session = await createFundSession(CREATOR_ID, CREATOR_EMAIL, fundingAmount);
+      const session = await createFundSession(creatorId, creatorEmail, fundingAmount);
       if (tab) {
         tab.location.href = session.checkout_url;
       } else {

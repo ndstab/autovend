@@ -1,4 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
+import { useAuth } from "../lib/auth";
 
 const links = [
   { to: "/", label: "home" },
@@ -9,6 +10,7 @@ const links = [
 
 export default function Nav() {
   const { pathname } = useLocation();
+  const { user, logout } = useAuth();
 
   return (
     <nav className="border-b border-border sticky top-0 z-50 bg-bg/80 backdrop-blur-md">
@@ -34,6 +36,25 @@ export default function Nav() {
               {l.label}
             </Link>
           ))}
+
+          {user ? (
+            <div className="flex items-center gap-2 ml-3 pl-3 border-l border-border">
+              <span className="text-text-mid text-xs">{user.email}</span>
+              <button
+                onClick={logout}
+                className="text-text-dim text-xs hover:text-error"
+              >
+                logout
+              </button>
+            </div>
+          ) : (
+            <Link
+              to="/login"
+              className="ml-3 pl-3 border-l border-border text-accent text-xs no-underline hover:underline"
+            >
+              sign in
+            </Link>
+          )}
         </div>
       </div>
     </nav>

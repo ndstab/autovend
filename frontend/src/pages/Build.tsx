@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import Card from "../components/Card";
 import StatusBadge from "../components/StatusBadge";
 import { triggerBuild, getBuildStatus, getBalance } from "../lib/api";
+import { useAuth } from "../lib/auth";
 
 interface BuildStep {
   id: string;
@@ -10,11 +11,11 @@ interface BuildStep {
   status: "pending" | "active" | "done" | "error";
 }
 
-const CREATOR_ID = "demo_user"; // MVP: single user
-
 export default function Build() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const creatorId = user!.id;
   const description = (location.state as { description?: string })?.description || "";
 
   const [_apiId, setApiId] = useState<string | null>(null);
@@ -33,17 +34,17 @@ export default function Build() {
   const hasStarted = useRef(false);
 
   const [steps, setSteps] = useState<BuildStep[]>([
-    { id: "parse", label: "Parsing description via Locus AI", status: "pending" },
-    { id: "codegen", label: "Generating FastAPI service", status: "pending" },
-    { id: "deploy", label: "Deploying Python runtime", status: "pending" },
-    { id: "x402", label: "Wiring x402 payment gate", status: "pending" },
-    { id: "identity", label: "Registering agent identity", status: "pending" },
-    { id: "live", label: "Activating endpoint", status: "pending" },
+    { id: "parse", label: "Sending to Locus wrapped Anthropic API", status: "pending" },
+    { id: "codegen", label: "AI generating FastAPI service + Pydantic models", status: "pending" },
+    { id: "deps", label: "Installing Python dependencies", status: "pending" },
+    { id: "deploy", label: "Starting uvicorn runtime on isolated port", status: "pending" },
+    { id: "x402", label: "Attaching x402 payment gate ($0.05/call)", status: "pending" },
+    { id: "live", label: "Endpoint live — accepting paid requests", status: "pending" },
   ]);
 
   // Load balance on mount
   useEffect(() => {
-    getBalance(CREATOR_ID).then((b) => {
+    getBalance(creatorId).then((b) => {
       setBalance(b.balance);
       setCanBuild(b.can_build);
     }).catch(() => {});
@@ -72,7 +73,7 @@ export default function Build() {
     simulateSteps();
 
     try {
-      const result = await triggerBuild(desc, CREATOR_ID);
+      const result = await triggerBuild(desc, creatorId);
       setApiId(result.api_id);
       startPolling(result.api_id);
     } catch (err) {

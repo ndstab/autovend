@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Card from "../components/Card";
+import { useAuth } from "../lib/auth";
 
 const examples = [
   "An API that takes a job title and location, and returns an estimated salary range with confidence level",
@@ -43,9 +44,16 @@ const stats = [
 export default function Landing() {
   const [description, setDescription] = useState("");
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   function handleBuild() {
     if (!description.trim()) return;
+    if (!user) {
+      // Stash description in sessionStorage so Login can forward it
+      sessionStorage.setItem("autovend_pending_desc", description);
+      navigate("/login", { state: { next: "/build" } });
+      return;
+    }
     navigate("/build", { state: { description } });
   }
 
