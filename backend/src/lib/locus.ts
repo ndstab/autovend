@@ -122,10 +122,12 @@ class LocusClient {
   // ─── Wallet / Balance ─────────────────────────────────────
 
   async getBalance() {
-    return this.request<{ balance: number; currency: string; address: string }>(
-      "GET",
-      "/api/pay/balance"
-    );
+    return this.request<{
+      usdc_balance: string;
+      wallet_address: string;
+      chain: string;
+      allowance: number | null;
+    }>("GET", "/api/pay/balance");
   }
 
   async getStatus() {

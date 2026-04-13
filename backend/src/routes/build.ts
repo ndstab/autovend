@@ -1,9 +1,11 @@
 import { Router, Request, Response } from "express";
 import { nanoid } from "nanoid";
-import { createApi, updateApiStatus, recordEarning } from "../db/schema.js";
+import { createApi, updateApiStatus, recordEarning, upsertUser, deductBalance, getUser } from "../db/schema.js";
 import { buildApi } from "../services/codegen.js";
 import { deployService } from "../services/deploy.js";
 import { locus } from "../lib/locus.js";
+
+const BUILD_COST_USD = 1.50; // charged to creator per build
 
 export const buildRouter = Router();
 
@@ -23,6 +25,24 @@ buildRouter.post("/", async (req: Request, res: Response) => {
   const apiId = nanoid(12);
   const price = price_usd || 0.05;
 
+  // Ensure user exists, check balance
+  upsertUser(creator_id);
+  const user = getUser(creator_id);
+  const balance = user?.balance ?? 0;
+
+  if (balance < BUILD_COST_USD) {
+    res.status(402).json({
+      error: "Insufficient balance",
+      balance,
+      required: BUILD_COST_USD,
+      message: `You need at least $${BUILD_COST_USD} to build. Current balance: $${balance.toFixed(2)}`,
+    });
+    return;
+  }
+
+  // Deduct build cost immediately (hold funds)
+  deductBalance(creator_id, BUILD_COST_USD);
+
   // Insert record immediately so status polling works
   createApi({
     id: apiId,
@@ -31,6 +51,7 @@ buildRouter.post("/", async (req: Request, res: Response) => {
     description,
     price_usd: price,
     wallet_id: process.env.LOCUS_WALLET_ID,
+    build_cost: BUILD_COST_USD,
   });
 
   // Return immediately — build runs async

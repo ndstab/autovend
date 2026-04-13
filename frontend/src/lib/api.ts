@@ -67,5 +67,24 @@ export interface DashboardStats {
 }
 
 export function getDashboard(creatorId: string) {
-  return request<{ stats: DashboardStats; apis: ApiRecord[] }>("GET", `/api/dashboard/${creatorId}`);
+  return request<{
+    stats: DashboardStats;
+    apis: ApiRecord[];
+    wallet: { balance: number | null; address: string | null };
+  }>("GET", `/api/dashboard/${creatorId}`);
+}
+
+// ─── Checkout / Balance ─────────────────────────────────────
+
+export function getBalance(creatorId: string) {
+  return request<{ balance: number; build_cost: number; can_build: boolean }>(
+    "GET", `/api/checkout/balance/${creatorId}`
+  );
+}
+
+export function createFundSession(creatorId: string, email: string, amount: number) {
+  return request<{ session_id: string; checkout_url: string; amount: number }>(
+    "POST", "/api/checkout/fund",
+    { creator_id: creatorId, email, amount }
+  );
 }

@@ -18,9 +18,9 @@ dashboardRouter.get("/:creatorId", async (req: Request, res: Response) => {
   let walletBalance: number | null = null;
   let walletAddress: string | null = null;
   const balanceResult = await locus.getBalance();
-  if (balanceResult.success) {
-    walletBalance = balanceResult.data.balance;
-    walletAddress = balanceResult.data.address;
+  if (balanceResult.success && balanceResult.data) {
+    walletBalance = parseFloat(balanceResult.data.usdc_balance) || 0;
+    walletAddress = balanceResult.data.wallet_address;
   }
 
   res.json({ stats, apis, wallet: { balance: walletBalance, address: walletAddress } });

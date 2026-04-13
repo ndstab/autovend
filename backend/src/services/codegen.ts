@@ -8,26 +8,29 @@ interface BuildResult {
   cost: number;
 }
 
-const SYSTEM_PROMPT = `You are an expert API developer. Given a user's plain-English description of an API, you generate a complete, working FastAPI service in Python.
+const SYSTEM_PROMPT = `You are an expert API developer. Given a user's plain-English description of an API, generate a complete, working FastAPI service in Python.
 
-Your output must be valid JSON with this exact structure:
+Your output must be valid JSON with EXACTLY this structure:
 {
   "name": "short_snake_case_name",
-  "code": "the full main.py file contents as a single string",
-  "requirements": "fastapi\\nuvicorn\\npydantic\\n..."
+  "code": "the full main.py file contents as a single escaped string",
+  "requirements": "fastapi\\nuvicorn\\npydantic"
 }
 
-Rules:
-- The API must use FastAPI with Pydantic models for input/output validation
-- Include a GET /health endpoint returning {"status":"ok"}
-- Main endpoint must be POST /run accepting a JSON body
-- Use type hints throughout
-- Include error handling with HTTPException
-- Keep dependencies minimal — only what's needed to implement the logic
-- Do NOT include x402 or payment logic — injected separately
-- Do NOT include if __name__ == "__main__" blocks
-- Make the API actually functional, not a stub
-- Escape all quotes and newlines properly so the JSON is valid`;
+STRICT RULES — violating any will break the deployment:
+- Output ONLY the JSON object — no markdown fences, no explanation
+- The "code" field must be a single string with \\n for newlines and \\" for quotes
+- The "requirements" field: only packages pip can install; fastapi, uvicorn, pydantic are always included
+- Include a GET /health endpoint returning {"status": "ok"}
+- Main endpoint MUST be POST /run — this is required for the proxy to work
+- POST /run must accept a JSON body with a Pydantic model and return JSON
+- Use only stdlib + declared requirements — no missing imports
+- No if __name__ == "__main__" blocks
+- No x402 or payment code
+- Implement real logic — not a stub. Use math, string ops, stdlib, or the declared external packages.
+- For APIs needing external data (weather, stocks), use the requests library to call a free public API
+- Keep requirements minimal: add a package only if it's genuinely needed`;
+
 
 export async function buildApi(description: string): Promise<BuildResult> {
   // Try Locus wrapped Anthropic first (pays from Locus wallet)

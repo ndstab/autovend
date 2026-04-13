@@ -26,6 +26,7 @@ export function initDb() {
       id         TEXT PRIMARY KEY,
       email      TEXT UNIQUE,
       wallet_id  TEXT,
+      balance    REAL NOT NULL DEFAULT 0,
       created_at INTEGER DEFAULT (unixepoch())
     );
 
@@ -51,12 +52,94 @@ export function initDb() {
       caller     TEXT,
       created_at INTEGER DEFAULT (unixepoch())
     );
+
+    CREATE TABLE IF NOT EXISTS deposits (
+      id            TEXT PRIMARY KEY,
+      creator_id    TEXT NOT NULL,
+      session_id    TEXT UNIQUE NOT NULL,
+      checkout_url  TEXT NOT NULL,
+      amount        REAL NOT NULL,
+      status        TEXT NOT NULL DEFAULT 'pending',
+      created_at    INTEGER DEFAULT (unixepoch())
+    );
   `);
+
+  // Migrate existing users table to add balance if missing
+  try {
+    database.exec(`ALTER TABLE users ADD COLUMN balance REAL NOT NULL DEFAULT 0`);
+  } catch {
+    // column already exists — fine
+  }
 
   console.log("Database initialized");
 }
 
-// ─── Query helpers ──────────────────────────────────────────
+// ─── Users ──────────────────────────────────────────────────
+
+export function upsertUser(id: string, email?: string) {
+  const database = getDb();
+  database.prepare(`
+    INSERT INTO users (id, email) VALUES (?, ?)
+    ON CONFLICT(id) DO UPDATE SET email = COALESCE(excluded.email, users.email)
+  `).run(id, email || null);
+  return database.prepare("SELECT * FROM users WHERE id = ?").get(id) as {
+    id: string; email: string | null; balance: number; created_at: number;
+  };
+}
+
+export function getUser(id: string) {
+  const database = getDb();
+  return database.prepare("SELECT * FROM users WHERE id = ?").get(id) as {
+    id: string; email: string | null; balance: number; created_at: number;
+  } | undefined;
+}
+
+export function creditBalance(creatorId: string, amount: number) {
+  const database = getDb();
+  database.prepare(`
+    UPDATE users SET balance = balance + ? WHERE id = ?
+  `).run(amount, creatorId);
+}
+
+export function deductBalance(creatorId: string, amount: number): boolean {
+  const database = getDb();
+  const user = getUser(creatorId);
+  if (!user || user.balance < amount) return false;
+  database.prepare(`
+    UPDATE users SET balance = balance - ? WHERE id = ?
+  `).run(amount, creatorId);
+  return true;
+}
+
+// ─── Deposits ────────────────────────────────────────────────
+
+export function createDeposit(deposit: {
+  id: string;
+  creator_id: string;
+  session_id: string;
+  checkout_url: string;
+  amount: number;
+}) {
+  const database = getDb();
+  database.prepare(`
+    INSERT INTO deposits (id, creator_id, session_id, checkout_url, amount)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(deposit.id, deposit.creator_id, deposit.session_id, deposit.checkout_url, deposit.amount);
+}
+
+export function getDepositBySession(sessionId: string) {
+  const database = getDb();
+  return database.prepare("SELECT * FROM deposits WHERE session_id = ?").get(sessionId) as {
+    id: string; creator_id: string; session_id: string; amount: number; status: string;
+  } | undefined;
+}
+
+export function markDepositPaid(sessionId: string) {
+  const database = getDb();
+  database.prepare("UPDATE deposits SET status = 'paid' WHERE session_id = ?").run(sessionId);
+}
+
+// ─── APIs ─────────────────────────────────────────────────────
 
 export function createApi(api: {
   id: string;
@@ -65,23 +148,25 @@ export function createApi(api: {
   description: string;
   price_usd?: number;
   wallet_id?: string;
+  build_cost?: number;
 }) {
   const database = getDb();
-  const stmt = database.prepare(`
-    INSERT INTO apis (id, creator_id, name, description, price_usd, wallet_id)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `);
-  stmt.run(api.id, api.creator_id, api.name, api.description, api.price_usd || 0.05, api.wallet_id || null);
+  database.prepare(`
+    INSERT INTO apis (id, creator_id, name, description, price_usd, wallet_id, build_cost)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(api.id, api.creator_id, api.name, api.description, api.price_usd || 0.05, api.wallet_id || null, api.build_cost || 0);
 }
 
-export function updateApiStatus(id: string, status: string, updates?: { endpoint?: string; agent_id?: string; build_cost?: number }) {
+export function updateApiStatus(id: string, status: string, updates?: {
+  endpoint?: string; agent_id?: string; build_cost?: number;
+}) {
   const database = getDb();
   const sets = ["status = ?"];
   const values: unknown[] = [status];
 
-  if (updates?.endpoint) { sets.push("endpoint = ?"); values.push(updates.endpoint); }
-  if (updates?.agent_id) { sets.push("agent_id = ?"); values.push(updates.agent_id); }
-  if (updates?.build_cost !== undefined) { sets.push("build_cost = ?"); values.push(updates.build_cost); }
+  if (updates?.endpoint)                { sets.push("endpoint = ?");   values.push(updates.endpoint); }
+  if (updates?.agent_id)                { sets.push("agent_id = ?");   values.push(updates.agent_id); }
+  if (updates?.build_cost !== undefined){ sets.push("build_cost = ?"); values.push(updates.build_cost); }
 
   values.push(id);
   database.prepare(`UPDATE apis SET ${sets.join(", ")} WHERE id = ?`).run(...values);
@@ -97,7 +182,11 @@ export function getAllApis() {
   return database.prepare("SELECT * FROM apis WHERE status = 'live' ORDER BY created_at DESC").all();
 }
 
-export function recordEarning(earning: { id: string; api_id: string; amount: number; type: string; caller?: string }) {
+// ─── Earnings ────────────────────────────────────────────────
+
+export function recordEarning(earning: {
+  id: string; api_id: string; amount: number; type: string; caller?: string;
+}) {
   const database = getDb();
   database.prepare(`
     INSERT INTO earnings (id, api_id, amount, type, caller)
@@ -105,22 +194,22 @@ export function recordEarning(earning: { id: string; api_id: string; amount: num
   `).run(earning.id, earning.api_id, earning.amount, earning.type, earning.caller || null);
 }
 
-export function getEarningsByApi(apiId: string) {
+export function getLiveApiIds(): string[] {
   const database = getDb();
-  return database.prepare("SELECT * FROM earnings WHERE api_id = ? ORDER BY created_at DESC").all(apiId);
+  const rows = database.prepare("SELECT id FROM apis WHERE status = 'live'").all() as { id: string }[];
+  return rows.map((r) => r.id);
 }
 
 export function getDashboardStats(creatorId: string) {
   const database = getDb();
-  const stats = database.prepare(`
+  return database.prepare(`
     SELECT
-      COUNT(DISTINCT a.id) as total_apis,
-      SUM(CASE WHEN e.type = 'call_revenue' THEN e.amount ELSE 0 END) as total_revenue,
-      SUM(CASE WHEN e.type = 'build_cost' THEN e.amount ELSE 0 END) as total_costs,
-      COUNT(CASE WHEN e.type = 'call_revenue' THEN 1 END) as total_calls
+      COUNT(DISTINCT a.id)                                              AS total_apis,
+      COALESCE(SUM(CASE WHEN e.type = 'call_revenue' THEN e.amount ELSE 0 END), 0) AS total_revenue,
+      COALESCE(SUM(CASE WHEN e.type = 'build_cost'   THEN ABS(e.amount) ELSE 0 END), 0) AS total_costs,
+      COUNT(CASE WHEN e.type = 'call_revenue' THEN 1 END)              AS total_calls
     FROM apis a
     LEFT JOIN earnings e ON e.api_id = a.id
     WHERE a.creator_id = ?
   `).get(creatorId);
-  return stats;
 }

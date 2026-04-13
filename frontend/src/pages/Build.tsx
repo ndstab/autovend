@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import Card from "../components/Card";
 import StatusBadge from "../components/StatusBadge";
-import { triggerBuild, getBuildStatus } from "../lib/api";
+import { triggerBuild, getBuildStatus, getBalance } from "../lib/api";
 
 interface BuildStep {
   id: string;
@@ -10,31 +10,44 @@ interface BuildStep {
   status: "pending" | "active" | "done" | "error";
 }
 
-const CREATOR_ID = "demo-creator"; // MVP: single user
+const CREATOR_ID = "demo_user"; // MVP: single user
 
 export default function Build() {
   const location = useLocation();
   const navigate = useNavigate();
   const description = (location.state as { description?: string })?.description || "";
 
-  const [apiId, setApiId] = useState<string | null>(null);
+  const [_apiId, setApiId] = useState<string | null>(null);
   const [apiStatus, setApiStatus] = useState<string>("idle");
+  const [_balance, setBalance] = useState<number | null>(null);
+  const [_canBuild, setCanBuild] = useState(true);
   const [endpoint, setEndpoint] = useState<string | null>(null);
   const [buildCost, setBuildCost] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [testInput, setTestInput] = useState('{"city": "London"}');
+  const [testResult, setTestResult] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
   const [inputDesc, setInputDesc] = useState(description);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const stepTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const hasStarted = useRef(false);
 
   const [steps, setSteps] = useState<BuildStep[]>([
-    { id: "parse", label: "Parsing description", status: "pending" },
+    { id: "parse", label: "Parsing description via Locus AI", status: "pending" },
     { id: "codegen", label: "Generating FastAPI service", status: "pending" },
-    { id: "deploy", label: "Deploying to Locus", status: "pending" },
-    { id: "x402", label: "Setting up x402 payment gate", status: "pending" },
+    { id: "deploy", label: "Deploying Python runtime", status: "pending" },
+    { id: "x402", label: "Wiring x402 payment gate", status: "pending" },
     { id: "identity", label: "Registering agent identity", status: "pending" },
     { id: "live", label: "Activating endpoint", status: "pending" },
   ]);
+
+  // Load balance on mount
+  useEffect(() => {
+    getBalance(CREATOR_ID).then((b) => {
+      setBalance(b.balance);
+      setCanBuild(b.can_build);
+    }).catch(() => {});
+  }, []);
 
   // Auto-start build if description came from landing (fire once only)
   useEffect(() => {
@@ -90,6 +103,29 @@ export default function Build() {
       }, delays[i]);
       stepTimers.current.push(t);
     });
+  }
+
+  async function runTest() {
+    if (!endpoint) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const LOCUS_KEY = import.meta.env.VITE_LOCUS_API_KEY || "";
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(LOCUS_KEY ? { "X-Locus-Key": LOCUS_KEY } : {}),
+        },
+        body: testInput,
+      });
+      const json = await res.json();
+      setTestResult(JSON.stringify(json, null, 2));
+    } catch (err) {
+      setTestResult(`Error: ${err}`);
+    } finally {
+      setTesting(false);
+    }
   }
 
   function startPolling(id: string) {
@@ -191,51 +227,95 @@ export default function Build() {
 
       {/* Success */}
       {apiStatus === "live" && (
-        <Card className="border-accent/20">
-          <div className="text-accent text-xs mb-4">&#10003; deployed &amp; live</div>
+        <div className="space-y-4">
+          <Card className="border-accent/20">
+            <div className="text-accent text-xs mb-4">&#10003; deployed &amp; live</div>
 
-          <div className="space-y-4">
-            <div>
-              <div className="text-text-dim text-xs mb-1">endpoint</div>
-              <div className="bg-bg border border-border px-3 py-2 text-accent text-sm break-all">
-                {endpoint || "https://autovend.locus.dev/..."}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-4">
               <div>
-                <div className="text-text-dim text-xs mb-1">build cost</div>
-                <div className="text-text text-lg font-bold">
-                  ${buildCost.toFixed(2)}
+                <div className="text-text-dim text-xs mb-1">endpoint</div>
+                <div className="bg-bg border border-border px-3 py-2 text-accent text-xs break-all font-mono">
+                  POST {endpoint || "http://localhost:3001/api/call/..."}
                 </div>
               </div>
-              <div>
-                <div className="text-text-dim text-xs mb-1">price per call</div>
-                <div className="text-accent text-lg font-bold">$0.05</div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <div className="text-text-dim text-xs mb-1">build cost</div>
+                  <div className="text-text text-lg font-bold">${buildCost.toFixed(2)}</div>
+                </div>
+                <div>
+                  <div className="text-text-dim text-xs mb-1">price / call</div>
+                  <div className="text-accent text-lg font-bold">$0.05</div>
+                </div>
+                <div>
+                  <div className="text-text-dim text-xs mb-1">payment</div>
+                  <div className="text-text-mid text-xs mt-1">X-Locus-Key header</div>
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => navigate("/dashboard")}
+                  className="px-4 py-2 bg-accent text-bg text-xs font-bold hover:bg-accent/90"
+                >
+                  VIEW EARNINGS
+                </button>
+                <button
+                  onClick={() => {
+                    setApiId(null);
+                    setApiStatus("idle");
+                    setInputDesc("");
+                    setTestResult(null);
+                    setSteps((s) => s.map((step) => ({ ...step, status: "pending" })));
+                  }}
+                  className="px-4 py-2 border border-border text-text-dim text-xs hover:text-text hover:border-border-bright"
+                >
+                  BUILD ANOTHER
+                </button>
               </div>
             </div>
+          </Card>
 
-            <div className="flex gap-3 pt-2">
-              <button
-                onClick={() => navigate("/dashboard")}
-                className="px-4 py-2 bg-accent text-bg text-xs font-bold hover:bg-accent/90"
-              >
-                VIEW DASHBOARD
-              </button>
-              <button
-                onClick={() => {
-                  setApiId(null);
-                  setApiStatus("idle");
-                  setInputDesc("");
-                  setSteps((s) => s.map((step) => ({ ...step, status: "pending" })));
-                }}
-                className="px-4 py-2 border border-border text-text-dim text-xs hover:text-text hover:border-border-bright"
-              >
-                BUILD ANOTHER
-              </button>
+          {/* Live test runner */}
+          <Card>
+            <div className="text-text-dim text-xs mb-3">try it — $0.05 per call</div>
+            <div className="mb-3">
+              <div className="text-text-dim text-xs mb-1">request body</div>
+              <textarea
+                value={testInput}
+                onChange={(e) => setTestInput(e.target.value)}
+                className="w-full bg-bg border border-border px-3 py-2 text-text text-xs font-mono resize-none outline-none focus:border-accent/50 min-h-[60px]"
+              />
             </div>
-          </div>
-        </Card>
+            <button
+              onClick={runTest}
+              disabled={testing}
+              className="px-4 py-2 bg-surface border border-border text-text text-xs hover:border-accent/50 disabled:opacity-50 mb-3"
+            >
+              {testing ? "calling..." : "CALL API"}
+            </button>
+            {testResult && (
+              <div>
+                <div className="text-text-dim text-xs mb-1">response</div>
+                <pre className="bg-bg border border-border px-3 py-2 text-success text-xs font-mono overflow-auto max-h-48">
+                  {testResult}
+                </pre>
+              </div>
+            )}
+          </Card>
+
+          {/* Curl example */}
+          <Card>
+            <div className="text-text-dim text-xs mb-2">curl example</div>
+            <pre className="text-text-mid text-xs font-mono overflow-auto whitespace-pre-wrap">
+{`curl -X POST ${endpoint} \\
+  -H "Content-Type: application/json" \\
+  -H "X-Locus-Key: <your-locus-api-key>" \\
+  -d '${testInput}'`}
+            </pre>
+          </Card>
+        </div>
       )}
     </div>
   );

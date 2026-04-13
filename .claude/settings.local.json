@@ -67,7 +67,29 @@
       "Bash(curl -s https://paywithlocus.com/llms.txt)",
       "Bash(curl -s https://beta-api.paywithlocus.com/api/wrapped -H 'Authorization: Bearer __CMDSUB_OUTPUT__')",
       "Bash(curl -s \"https://paywithlocus.com/wapi/anthropic.md\")",
-      "Bash(curl -s \"https://paywithlocus.com/wapi/exa.md\")"
+      "Bash(curl -s \"https://paywithlocus.com/wapi/exa.md\")",
+      "Bash(curl -s \"https://beta.paywithlocus.com/checkout.md\")",
+      "Bash(curl -s \"https://beta.paywithlocus.com/llms.txt\")",
+      "Bash(curl -s https://beta-api.paywithlocus.com/api/checkout -H 'Authorization: Bearer __CMDSUB_OUTPUT__')",
+      "Bash(curl -s -X POST https://beta-api.paywithlocus.com/api/checkout/sessions -H 'Authorization: Bearer __CMDSUB_OUTPUT__')",
+      "Bash(curl -sL \"https://paywithlocus.com/skill.md\")",
+      "Bash(pip3 --version)",
+      "Bash(pip3 list:*)",
+      "Bash(pip3 install:*)",
+      "Bash(npm run:*)",
+      "Bash(node dist/index.js)",
+      "Bash(curl -s http://localhost:3001/health)",
+      "Bash(curl -s -X POST http://localhost:3001/api/build -H 'Content-Type: application/json' -d '{\"description\":\"An API that takes a city name and returns current weather conditions including temperature, humidity, and a brief description. Use the Open-Meteo free API for weather data.\",\"creator_id\":\"demo_user\",\"price_usd\":0.05}')",
+      "Bash(node -e ':*)",
+      "Bash(curl -s -X POST http://localhost:3001/api/call/WjGAw5VHqt5E -H 'Content-Type: application/json' -d '{\"city\":\"London\"}')",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'Status field: {d.get\\(\\\\\"error\\\\\"\\)}, Price: {d.get\\(\\\\\"accepts\\\\\",[{}]\\)[0].get\\(\\\\\"maxAmountRequired\\\\\",\\\\\"?\\\\\"\\)}'\\)\")",
+      "Bash(pkill -f \"node dist/index.js\")",
+      "Bash(curl -s http://localhost:3001/api/checkout/balance/demo_user)",
+      "Bash(curl -s \"http://localhost:3001/api/dashboard?creator_id=demo_user\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'APIs: {len\\(d.get\\(\\\\\"apis\\\\\",[]\\)\\)}, Wallet: {d.get\\(\\\\\"wallet\\\\\",{}\\).get\\(\\\\\"balance\\\\\",\\\\\"?\\\\\"\\)}'\\)\")",
+      "Bash(pkill -f \"uvicorn main:app\")",
+      "Bash(curl -s http://localhost:3001/api/dashboard/demo_user)",
+      "Bash(python3 -c ':*)"
     ]
   }
 }
