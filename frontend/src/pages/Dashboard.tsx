@@ -49,11 +49,18 @@ export default function Dashboard() {
 
   async function handleFundWallet() {
     setFundingLoading(true);
+    // Open the window synchronously BEFORE the async call — Safari allows this
+    const tab = window.open("about:blank", "_blank");
     try {
       const session = await createFundSession(CREATOR_ID, CREATOR_EMAIL, fundingAmount);
-      // Redirect to Locus checkout
-      window.open(session.checkout_url, "_blank");
+      if (tab) {
+        tab.location.href = session.checkout_url;
+      } else {
+        // Fallback: redirect current tab
+        window.location.href = session.checkout_url;
+      }
     } catch (err) {
+      tab?.close();
       console.error("Fund wallet failed:", err);
     } finally {
       setFundingLoading(false);

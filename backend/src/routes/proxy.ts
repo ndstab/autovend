@@ -214,3 +214,61 @@ proxyRouter.post("/:apiId", async (req: Request, res: Response) => {
   res.set("X-Creator-Earn", String(creatorEarning));
   res.json(result);
 });
+
+/**
+ * POST /api/call/:apiId/test
+ *
+ * Free test endpoint callable from the frontend UI.
+ * Skips Locus payment but still records the call + credits the creator,
+ * so the dashboard updates in real time during a demo.
+ */
+proxyRouter.post("/:apiId/test", async (req: Request, res: Response) => {
+  const { apiId } = req.params as { apiId: string };
+
+  const api = getDb()
+    .prepare("SELECT * FROM apis WHERE id = ? AND status = 'live'")
+    .get(apiId) as {
+      id: string; name: string; creator_id: string; price_usd: number;
+    } | undefined;
+
+  if (!api) {
+    res.status(404).json({ error: "API not found or not live" });
+    return;
+  }
+
+  // Get or cold-start the process
+  let port = getPort(apiId);
+  if (!port) {
+    try {
+      port = await startApi(apiId);
+    } catch (err) {
+      res.status(503).json({ error: "API process failed to start", details: String(err) });
+      return;
+    }
+  }
+
+  // Execute
+  try {
+    const execRes = await fetch(`http://127.0.0.1:${port}/run`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req.body),
+    });
+    const result = await execRes.json();
+
+    // Record earning so dashboard updates live
+    const priceUsd = api.price_usd || CALL_PRICE_USD;
+    recordEarning({
+      id: nanoid(12),
+      api_id: apiId,
+      amount: priceUsd,
+      type: "call_revenue",
+      caller: "test-ui",
+    });
+    creditBalance(api.creator_id, priceUsd * CREATOR_SHARE);
+
+    res.json({ result, cost: priceUsd, paid: false, note: "Test call — no USDC charged" });
+  } catch (err) {
+    res.status(500).json({ error: "API execution failed", details: String(err) });
+  }
+});

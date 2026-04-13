@@ -1,4 +1,6 @@
-import { saveApiFiles, startApi } from "./executor.js";
+import { execSync } from "child_process";
+import path from "path";
+import { saveApiFiles, startApi, getApiDir } from "./executor.js";
 
 interface DeployInput {
   apiId: string;
@@ -25,7 +27,17 @@ export async function deployService(input: DeployInput): Promise<DeployResult> {
   // 1. Save generated files to disk
   saveApiFiles(apiId, code, requirements, dockerfile);
 
-  // 2. Start the FastAPI process (uvicorn on a local port)
+  // 2. Install dependencies
+  const dir = getApiDir(apiId);
+  console.log(`[deploy] Installing dependencies for ${name}...`);
+  try {
+    execSync(`pip3 install -r requirements.txt -q`, { cwd: dir, timeout: 60_000 });
+    console.log(`[deploy] Dependencies installed`);
+  } catch (err) {
+    console.warn(`[deploy] pip install failed (continuing anyway):`, err);
+  }
+
+  // 3. Start the FastAPI process (uvicorn on a local port)
   console.log(`[deploy] Starting FastAPI process for ${name} (${apiId})...`);
   const port = await startApi(apiId);
 

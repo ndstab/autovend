@@ -110,17 +110,16 @@ export default function Build() {
     setTesting(true);
     setTestResult(null);
     try {
-      const LOCUS_KEY = import.meta.env.VITE_LOCUS_API_KEY || "";
-      const res = await fetch(endpoint, {
+      // Use the /test route — skips Locus payment, still records earning
+      const API_BASE = import.meta.env.VITE_API_URL || "";
+      const testUrl = `${API_BASE}${new URL(endpoint).pathname}/test`;
+      const res = await fetch(testUrl, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(LOCUS_KEY ? { "X-Locus-Key": LOCUS_KEY } : {}),
-        },
+        headers: { "Content-Type": "application/json" },
         body: testInput,
       });
       const json = await res.json();
-      setTestResult(JSON.stringify(json, null, 2));
+      setTestResult(JSON.stringify(json.result ?? json, null, 2));
     } catch (err) {
       setTestResult(`Error: ${err}`);
     } finally {
