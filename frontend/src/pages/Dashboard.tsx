@@ -116,21 +116,40 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div className="flex flex-col gap-2 items-end">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setFundingAmount(Math.max(1, fundingAmount - 1))}
+                      className="px-2 py-1 border border-border text-text-dim text-xs hover:text-text hover:border-border-bright"
+                    >
+                      −
+                    </button>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="numeric"
                       value={fundingAmount}
-                      onChange={(e) => setFundingAmount(Number(e.target.value))}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === "") setFundingAmount(0);
+                        else if (/^\d+$/.test(val)) setFundingAmount(Number(val));
+                      }}
+                      onBlur={() => {
+                        if (fundingAmount < 1) setFundingAmount(1);
+                      }}
                       min={1}
-                      step={1}
-                      className="w-16 bg-bg border border-border text-text text-xs px-2 py-1 text-right"
+                      className="w-12 bg-bg border border-border text-text text-xs px-2 py-1 text-center"
                     />
+                    <button
+                      onClick={() => setFundingAmount(fundingAmount + 1)}
+                      className="px-2 py-1 border border-border text-text-dim text-xs hover:text-text hover:border-border-bright"
+                    >
+                      +
+                    </button>
                     <button
                       onClick={handleFundWallet}
                       disabled={fundingLoading}
-                      className="px-3 py-1.5 bg-accent text-bg text-xs font-bold hover:bg-accent/90 disabled:opacity-50 whitespace-nowrap"
+                      className="px-3 py-1.5 bg-accent text-bg text-xs font-bold hover:bg-accent/90 disabled:opacity-50 whitespace-nowrap ml-1"
                     >
-                      {fundingLoading ? "..." : "FUND $USDC"}
+                      {fundingLoading ? "..." : "FUND"}
                     </button>
                   </div>
                   {!canBuild && (
