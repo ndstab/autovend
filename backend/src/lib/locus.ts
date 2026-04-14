@@ -214,6 +214,14 @@ class LocusClient {
 
   // ─── Checkout ─────────────────────────────────────────────
 
+  /** GET the raw checkout session (includes status: 'paid' | 'pending' | etc.) */
+  async getCheckoutSession(sessionId: string) {
+    return this.request<Record<string, unknown>>(
+      "GET",
+      `/api/checkout/sessions/${sessionId}`
+    );
+  }
+
   async checkoutPreflight(sessionId: string) {
     return this.request<{ amount: number; currency: string; merchant: string }>(
       "GET",

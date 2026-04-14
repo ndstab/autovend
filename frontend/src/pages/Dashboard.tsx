@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import Card from "../components/Card";
 import StatusBadge from "../components/StatusBadge";
-import { getDashboard, getBalance, createFundSession, pollDeposit, type DashboardStats, type ApiRecord } from "../lib/api";
+import { getDashboard, getBalance, createFundSession, pollDeposit, forceConfirmDeposit, type DashboardStats, type ApiRecord } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
 export default function Dashboard() {
@@ -199,6 +199,25 @@ export default function Dashboard() {
                   )}
                   {pollStatus === "timeout" && (
                     <span className="text-error text-xs">not detected — refresh later</span>
+                  )}
+                  {pollStatus === "waiting" && pendingSession && (
+                    <button
+                      onClick={async () => {
+                        if (!pendingSession) return;
+                        const r = await forceConfirmDeposit(pendingSession);
+                        if (r.paid) {
+                          setPollStatus("confirmed");
+                          setPendingSession(null);
+                          loadAll();
+                          setTimeout(() => setPollStatus("idle"), 6000);
+                        } else {
+                          alert(r.error || "Locus has not confirmed this session yet.");
+                        }
+                      }}
+                      className="text-text-dim text-xs hover:text-accent underline"
+                    >
+                      already paid? click to verify
+                    </button>
                   )}
                   {!canBuild && pollStatus === "idle" && (
                     <span className="text-error text-xs">insufficient balance</span>

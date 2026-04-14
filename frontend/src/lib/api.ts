@@ -90,7 +90,13 @@ export function createFundSession(creatorId: string, email: string, amount: numb
 }
 
 export function pollDeposit(sessionId: string) {
-  return request<{ paid: boolean; balance: number }>(
+  return request<{ paid: boolean; balance: number; via?: string; diagnostics?: unknown }>(
     "GET", `/api/checkout/poll/${sessionId}`
+  );
+}
+
+export function forceConfirmDeposit(sessionId: string) {
+  return request<{ paid: boolean; balance: number; via?: string; error?: string }>(
+    "POST", `/api/checkout/force-confirm/${sessionId}`
   );
 }
