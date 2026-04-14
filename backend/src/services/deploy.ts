@@ -27,14 +27,28 @@ export async function deployService(input: DeployInput): Promise<DeployResult> {
   // 1. Save generated files to disk
   saveApiFiles(apiId, code, requirements, dockerfile);
 
-  // 2. Install dependencies
+  // 2. Install dependencies — try pip3 then pip
   const dir = getApiDir(apiId);
   console.log(`[deploy] Installing dependencies for ${name}...`);
-  try {
-    execSync(`pip3 install -r requirements.txt -q`, { cwd: dir, timeout: 60_000 });
-    console.log(`[deploy] Dependencies installed`);
-  } catch (err) {
-    console.warn(`[deploy] pip install failed (continuing anyway):`, err);
+  const pipCmd = (() => {
+    for (const cmd of ["pip3", "pip", "python3 -m pip", "python -m pip"]) {
+      try {
+        execSync(`${cmd} --version`, { stdio: "ignore", timeout: 5_000 });
+        return cmd;
+      } catch { /* try next */ }
+    }
+    return null;
+  })();
+
+  if (pipCmd) {
+    try {
+      execSync(`${pipCmd} install -r requirements.txt -q`, { cwd: dir, timeout: 90_000 });
+      console.log(`[deploy] Dependencies installed via ${pipCmd}`);
+    } catch (err) {
+      console.warn(`[deploy] pip install failed (continuing anyway):`, err);
+    }
+  } else {
+    console.warn(`[deploy] No pip executable found — proceeding without install`);
   }
 
   // 3. Start the FastAPI process (uvicorn on a local port)

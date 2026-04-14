@@ -5,9 +5,18 @@
  * AutoVend proxies calls to them after collecting x402 payments.
  */
 
-import { spawn, type ChildProcess } from "child_process";
+import { spawn, spawnSync, type ChildProcess } from "child_process";
 import fs from "fs";
 import path from "path";
+
+/** Find the first available Python binary */
+function findPython(): string {
+  for (const bin of ["python3", "python", "python3.11", "python3.12"]) {
+    const r = spawnSync(bin, ["--version"], { stdio: "ignore" });
+    if (r.status === 0) return bin;
+  }
+  throw new Error("No Python binary found. Install Python 3 to run generated APIs.");
+}
 
 const APIS_DIR = process.env.APIS_DIR || "./data/apis";
 const PORT_START = 4000;
@@ -75,8 +84,9 @@ export async function startApi(apiId: string): Promise<number> {
 
   console.log(`[executor] Starting API ${apiId} on port ${port}...`);
 
+  const pythonBin = findPython();
   const proc = spawn(
-    "python3",
+    pythonBin,
     ["-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", String(port), "--log-level", "warning"],
     {
       cwd: dir,
@@ -90,6 +100,14 @@ export async function startApi(apiId: string): Promise<number> {
   proc.stderr?.on("data", (d) => {
     const msg = d.toString().trim();
     if (msg) console.log(`[api:${apiId}]`, msg);
+  });
+
+  // CRITICAL: handle spawn errors (e.g. python3 not found) — without this
+  // listener the unhandled 'error' event crashes the entire Node process.
+  proc.on("error", (err) => {
+    console.error(`[executor] Failed to spawn API ${apiId}:`, err.message);
+    running.delete(apiId);
+    usedPorts.delete(port);
   });
 
   proc.on("exit", (code) => {
