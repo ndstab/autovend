@@ -23,6 +23,20 @@ export function triggerBuild(description: string, creatorId: string, priceUsd?: 
   });
 }
 
+export function getActiveBuild(creatorId: string) {
+  return request<{
+    active: {
+      id: string;
+      name: string;
+      description: string;
+      status: string;
+      endpoint: string | null;
+      build_cost: number;
+      created_at: number;
+    } | null;
+  }>("GET", `/api/build/active?creator_id=${encodeURIComponent(creatorId)}`);
+}
+
 export function getBuildStatus(apiId: string) {
   return request<{
     id: string;

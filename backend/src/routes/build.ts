@@ -62,6 +62,26 @@ buildRouter.post("/", async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/build/active?creator_id=X
+ * Returns the most recent in-progress build for a creator, if any.
+ * Used by the Build page to resume polling after navigation.
+ */
+buildRouter.get("/active", async (req: Request, res: Response) => {
+  const creatorId = req.query.creator_id as string | undefined;
+  if (!creatorId) {
+    res.status(400).json({ error: "creator_id required" });
+    return;
+  }
+  const db = (await import("../db/schema.js")).getDb();
+  const api = db
+    .prepare(
+      "SELECT id, name, description, status, endpoint, build_cost, created_at FROM apis WHERE creator_id = ? AND status = 'building' ORDER BY created_at DESC LIMIT 1"
+    )
+    .get(creatorId);
+  res.json({ active: api ?? null });
+});
+
+/**
  * GET /api/build/:id/status
  */
 buildRouter.get("/:id/status", async (req: Request, res: Response) => {
@@ -98,6 +118,8 @@ buildRouter.post("/register", async (_req: Request, res: Response) => {
 
 // ─── Background pipeline ────────────────────────────────────
 
+const BUILD_TIMEOUT_MS = 180_000; // 3 minutes hard cap
+
 async function runBuildPipeline(
   apiId: string,
   description: string,
@@ -105,6 +127,18 @@ async function runBuildPipeline(
   priceUsd: number
 ) {
   let totalCost = 0;
+  let finished = false;
+
+  // Watchdog: if build isn't done in 3 min, force-fail it so it doesn't hang.
+  const watchdog = setTimeout(() => {
+    if (finished) return;
+    console.error(`[${apiId}] Build timeout — force failing`);
+    try {
+      updateApiStatus(apiId, "failed");
+    } catch (e) {
+      console.error(`[${apiId}] watchdog update failed:`, e);
+    }
+  }, BUILD_TIMEOUT_MS);
 
   try {
     // Step 1: Codegen via Locus wrapped Anthropic (falls back to direct API)
@@ -151,5 +185,8 @@ async function runBuildPipeline(
   } catch (err) {
     console.error(`[${apiId}] Build failed:`, err);
     updateApiStatus(apiId, "failed");
+  } finally {
+    finished = true;
+    clearTimeout(watchdog);
   }
 }

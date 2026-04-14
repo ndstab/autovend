@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import Card from "../components/Card";
 import StatusBadge from "../components/StatusBadge";
-import { triggerBuild, getBuildStatus, getBalance } from "../lib/api";
+import { triggerBuild, getBuildStatus, getBalance, getActiveBuild } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
 interface BuildStep {
@@ -50,12 +50,30 @@ export default function Build() {
     }).catch(() => {});
   }, []);
 
-  // Auto-start build if description came from landing (fire once only)
+  // Auto-start build if description came from landing, OR resume an in-progress build
   useEffect(() => {
-    if (description && !hasStarted.current) {
+    if (hasStarted.current) return;
+
+    if (description) {
       hasStarted.current = true;
       startBuild(description);
+    } else {
+      // Check if there's an in-progress build for this user and resume polling
+      getActiveBuild(creatorId)
+        .then((res) => {
+          if (res.active && !hasStarted.current) {
+            hasStarted.current = true;
+            setApiId(res.active.id);
+            setApiStatus("building");
+            setInputDesc(res.active.description);
+            // Mark all steps active-ish so the UI shows progress
+            simulateSteps();
+            startPolling(res.active.id);
+          }
+        })
+        .catch(() => {});
     }
+
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
       stepTimers.current.forEach(clearTimeout);
