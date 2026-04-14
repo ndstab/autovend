@@ -1,6 +1,14 @@
 import { Router, Request, Response } from "express";
 import { nanoid } from "nanoid";
-import { createDeposit, upsertUser, getUser } from "../db/schema.js";
+import {
+  createDeposit,
+  upsertUser,
+  getUser,
+  getDepositBySession,
+  markDepositPaid,
+  creditBalance,
+} from "../db/schema.js";
+import { locus } from "../lib/locus.js";
 
 export const checkoutRouter = Router();
 
@@ -76,6 +84,67 @@ checkoutRouter.post("/fund", async (req: Request, res: Response) => {
  * GET /api/checkout/balance/:creatorId
  * Return a creator's current AutoVend balance.
  */
+/**
+ * GET /api/checkout/poll/:sessionId
+ * Since Locus webhooks can't reach localhost, the frontend polls this route.
+ * We query Locus's recent transactions and look for an incoming USDC credit
+ * whose amount matches the deposit and whose timestamp is after the deposit
+ * was created. On match, mark the deposit paid + credit AutoVend balance.
+ */
+checkoutRouter.get("/poll/:sessionId", async (req: Request, res: Response) => {
+  const sessionId = req.params.sessionId as string;
+  const deposit = getDepositBySession(sessionId) as
+    | { id: string; creator_id: string; session_id: string; amount: number; status: string; created_at: number }
+    | undefined;
+
+  if (!deposit) {
+    res.status(404).json({ error: "deposit not found" });
+    return;
+  }
+
+  const user = getUser(deposit.creator_id);
+
+  if (deposit.status === "paid") {
+    res.json({ paid: true, balance: user?.balance ?? 0 });
+    return;
+  }
+
+  try {
+    const txResult = await locus.getTransactions(50, 0);
+    const txs = (txResult.data as { transactions?: unknown[] } | null)?.transactions ?? [];
+
+    const match = (txs as Array<Record<string, unknown>>).find((t) => {
+      const amount = parseFloat(String(t.amount ?? t.usdc_amount ?? "0"));
+      const isIncoming =
+        t.direction === "in" ||
+        t.type === "credit" ||
+        t.type === "deposit" ||
+        t.type === "checkout" ||
+        String(t.to ?? "").length > 0 && String(t.from ?? "") !== String(t.to ?? "");
+      const ts = Number(t.created_at ?? t.timestamp ?? 0);
+      const afterDeposit = ts === 0 || ts >= deposit.created_at - 5;
+      const amountMatch = Math.abs(amount - deposit.amount) < 0.005;
+      const sessionMatch =
+        JSON.stringify(t).includes(sessionId) ||
+        (t.metadata as Record<string, unknown> | undefined)?.session_id === sessionId;
+      return sessionMatch || (amountMatch && afterDeposit && isIncoming);
+    });
+
+    if (match) {
+      markDepositPaid(sessionId);
+      creditBalance(deposit.creator_id, deposit.amount);
+      const updated = getUser(deposit.creator_id);
+      res.json({ paid: true, balance: updated?.balance ?? 0 });
+      return;
+    }
+
+    res.json({ paid: false, balance: user?.balance ?? 0 });
+  } catch (err) {
+    console.error("[checkout.poll] failed:", err);
+    res.json({ paid: false, balance: user?.balance ?? 0, error: "poll_failed" });
+  }
+});
+
 checkoutRouter.get("/balance/:creatorId", (req: Request, res: Response) => {
   const creatorId = req.params.creatorId as string;
   upsertUser(creatorId); // create if not exists
