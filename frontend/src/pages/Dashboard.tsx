@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import Card from "../components/Card";
 import StatusBadge from "../components/StatusBadge";
-import { getDashboard, getBalance, createFundSession, type DashboardStats, type ApiRecord } from "../lib/api";
+import { getDashboard, getBalance, createFundSession, pollDeposit, type DashboardStats, type ApiRecord } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
 export default function Dashboard() {
@@ -22,12 +22,45 @@ export default function Dashboard() {
   const [withdrawLoading, setWithdrawLoading] = useState(false);
   const [withdrawAddress, setWithdrawAddress] = useState("");
   const [showWithdraw, setShowWithdraw] = useState(false);
+  const [pendingSession, setPendingSession] = useState<string | null>(null);
+  const [pollStatus, setPollStatus] = useState<"idle" | "waiting" | "confirmed" | "timeout">("idle");
 
   useEffect(() => {
     loadAll();
     const interval = setInterval(loadAll, 10000);
     return () => clearInterval(interval);
   }, []);
+
+  // Poll pending deposit until paid or 5-minute timeout
+  useEffect(() => {
+    if (!pendingSession) return;
+    const start = Date.now();
+    const TIMEOUT = 5 * 60 * 1000;
+    const tick = async () => {
+      try {
+        const result = await pollDeposit(pendingSession);
+        if (result.paid) {
+          setPollStatus("confirmed");
+          setPendingSession(null);
+          loadAll();
+          setTimeout(() => setPollStatus("idle"), 6000);
+          return true;
+        }
+      } catch {
+        // keep polling
+      }
+      if (Date.now() - start > TIMEOUT) {
+        setPollStatus("timeout");
+        setPendingSession(null);
+        return true;
+      }
+      return false;
+    };
+    const interval = setInterval(async () => {
+      if (await tick()) clearInterval(interval);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [pendingSession]);
 
   async function loadAll() {
     try {
@@ -60,6 +93,8 @@ export default function Dashboard() {
         // Fallback: redirect current tab
         window.location.href = session.checkout_url;
       }
+      setPendingSession(session.session_id);
+      setPollStatus("waiting");
     } catch (err) {
       tab?.close();
       console.error("Fund wallet failed:", err);
@@ -87,6 +122,9 @@ export default function Dashboard() {
     }
   }
 
+  const ADMIN_EMAILS = ["admin@autovend.ai", "admin@autovend.com"];
+  const isAdmin = ADMIN_EMAILS.includes(creatorEmail.toLowerCase());
+
   const revenue = stats?.total_revenue || 0;
   const costs = stats?.total_costs || 0;
   const net = revenue - costs;
@@ -104,7 +142,7 @@ export default function Dashboard() {
       ) : (
         <>
           {/* Wallet balance banner */}
-          <div className="grid md:grid-cols-2 gap-4 mb-6">
+          <div className={`grid ${isAdmin ? "md:grid-cols-2" : "md:grid-cols-1"} gap-4 mb-6`}>
             <Card className="border-accent/20">
               <div className="flex items-start justify-between">
                 <div>
@@ -153,17 +191,27 @@ export default function Dashboard() {
                       {fundingLoading ? "..." : "FUND"}
                     </button>
                   </div>
-                  {!canBuild && (
+                  {pollStatus === "waiting" && (
+                    <span className="text-text-dim text-xs animate-pulse">waiting for payment…</span>
+                  )}
+                  {pollStatus === "confirmed" && (
+                    <span className="text-success text-xs">+ funds credited</span>
+                  )}
+                  {pollStatus === "timeout" && (
+                    <span className="text-error text-xs">not detected — refresh later</span>
+                  )}
+                  {!canBuild && pollStatus === "idle" && (
                     <span className="text-error text-xs">insufficient balance</span>
                   )}
                 </div>
               </div>
             </Card>
 
+            {isAdmin && (
             <Card>
               <div className="flex items-start justify-between">
                 <div>
-                  <div className="text-text-dim text-xs mb-1">locus wallet balance</div>
+                  <div className="text-text-dim text-xs mb-1">locus wallet balance (admin)</div>
                   <div className="text-text text-3xl font-bold">
                     {locusBalance !== null ? `$${locusBalance.toFixed(2)}` : "—"}
                   </div>
@@ -196,6 +244,7 @@ export default function Dashboard() {
                 </div>
               )}
             </Card>
+            )}
           </div>
 
           {/* Stats grid */}

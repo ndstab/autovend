@@ -88,3 +88,9 @@ export function createFundSession(creatorId: string, email: string, amount: numb
     { creator_id: creatorId, email, amount }
   );
 }
+
+export function pollDeposit(sessionId: string) {
+  return request<{ paid: boolean; balance: number }>(
+    "GET", `/api/checkout/poll/${sessionId}`
+  );
+}
