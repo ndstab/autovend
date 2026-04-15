@@ -97,7 +97,7 @@ export default function Landing() {
       {/* Hero */}
       <section className="pt-24 pb-16">
         <div className="flex items-center gap-2 mb-6">
-          <span className="text-text-dim text-xs">// autovend v0.1</span>
+          <span className="text-text-dim text-xs">// autovend</span>
           <span className="px-2 py-0.5 text-xs bg-accent-dim text-accent border border-accent/20">
             hackathon build
           </span>

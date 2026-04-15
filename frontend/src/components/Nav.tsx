@@ -19,7 +19,6 @@ export default function Nav() {
           <span className="text-accent font-bold text-lg tracking-tighter">
             AutoVend
           </span>
-          <span className="text-text-dim text-xs">// v0.1</span>
         </Link>
 
         <div className="flex items-center gap-1">
