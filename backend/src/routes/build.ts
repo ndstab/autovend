@@ -102,7 +102,7 @@ buildRouter.get("/:id/status", async (req: Request, res: Response) => {
   const id = req.params.id as string;
   const db = (await import("../db/schema.js")).getDb();
   const api = db
-    .prepare("SELECT id, name, status, endpoint, agent_id, build_cost FROM apis WHERE id = ?")
+    .prepare("SELECT id, name, status, endpoint, agent_id, build_cost, input_schema, input_example, last_error FROM apis WHERE id = ?")
     .get(id);
 
   if (!api) {
@@ -141,13 +141,18 @@ async function runBuildPipeline(
   priceUsd: number
 ) {
   let finished = false;
+  let watchdogFired = false;
 
   // Watchdog: if build isn't done in 3 min, force-fail it so it doesn't hang.
+  // Sets watchdogFired so the subsequent pipeline finish (success OR error)
+  // can skip its own status update/refund and avoid double-crediting.
   const watchdog = setTimeout(() => {
     if (finished) return;
+    watchdogFired = true;
+    finished = true;
     console.error(`[${apiId}] Build timeout — force failing`);
     try {
-      refundFailedBuild(apiId, creatorId);
+      refundFailedBuild(apiId, creatorId, "Build exceeded 3-minute timeout");
     } catch (e) {
       console.error(`[${apiId}] watchdog refund failed:`, e);
     }
@@ -157,7 +162,8 @@ async function runBuildPipeline(
     // Step 1: Codegen — kicks off Exa research internally, then Locus wrapped
     // Anthropic (falls back to direct Anthropic API).
     console.log(`[${apiId}] Starting codegen (with Exa research)...`);
-    const { name, code, dockerfile, requirements, research } = await buildApi(description);
+    const { name, code, dockerfile, requirements, research, input_schema, input_example } =
+      await buildApi(description);
 
     if (research && research.length) {
       console.log(`[${apiId}] Exa surfaced ${research.length} source(s):`);
@@ -185,33 +191,64 @@ async function runBuildPipeline(
     // This mints a new Locus agent for the deployed API, giving it its own
     // on-chain identity + wallet. We store the resulting wallet address as
     // the agent_id on the API row.
+    //
+    // The Locus response shape isn't guaranteed (camelCase vs snake_case, or
+    // nested under `wallet`), so we check several plausible fields. A failed
+    // registration is non-blocking — we just log useful detail.
     let agentId: string | undefined;
     try {
       const reg = await locus.register(
         `autovend-${name}-${apiId}`.slice(0, 64),
         `agents+${apiId}@autovend.ai`
       );
-      if (reg.success && reg.data?.walletAddress) {
-        agentId = reg.data.walletAddress;
-        console.log(`[${apiId}] Agent identity registered: ${agentId}`);
+      if (reg.success) {
+        const data = (reg.data ?? {}) as Record<string, unknown>;
+        const wallet = (data.wallet ?? {}) as Record<string, unknown>;
+        const candidate =
+          data.walletAddress ??
+          data.wallet_address ??
+          data.address ??
+          wallet.address ??
+          wallet.walletAddress;
+        if (typeof candidate === "string" && candidate) {
+          agentId = candidate;
+          console.log(`[${apiId}] Agent identity registered: ${agentId}`);
+        } else {
+          console.warn(
+            `[${apiId}] Agent registered but no wallet address found in response. Keys: ${Object.keys(data).join(", ") || "(none)"}`
+          );
+        }
       } else {
-        console.warn(`[${apiId}] Agent registration failed:`, reg.error);
+        const errMsg = reg.error || "unknown error (Locus returned no detail)";
+        console.warn(`[${apiId}] Agent registration failed: ${errMsg}`);
       }
     } catch (err) {
       console.warn(`[${apiId}] Agent registration threw:`, err);
     }
 
-    // Mark live (with agent_id if we got one)
-    updateApiStatus(apiId, "live", {
-      endpoint: deployment.url,
-      build_cost: BUILD_COST_USD,
-      agent_id: agentId,
-    });
-
-    console.log(`[${apiId}] Live at ${deployment.url}`);
+    if (watchdogFired) {
+      // Watchdog already refunded + marked failed while we were still running.
+      // Don't overwrite with "live" — the creator already has their money back.
+      console.warn(`[${apiId}] Pipeline finished after watchdog fired — discarding success`);
+    } else {
+      // Mark live (with agent_id if we got one)
+      updateApiStatus(apiId, "live", {
+        endpoint: deployment.url,
+        build_cost: BUILD_COST_USD,
+        agent_id: agentId,
+        input_schema: input_schema ? JSON.stringify(input_schema) : undefined,
+        input_example: input_example ? JSON.stringify(input_example) : undefined,
+      });
+      console.log(`[${apiId}] Live at ${deployment.url}`);
+    }
   } catch (err) {
-    console.error(`[${apiId}] Build failed:`, err);
-    refundFailedBuild(apiId, creatorId);
+    if (watchdogFired) {
+      console.error(`[${apiId}] Pipeline errored after watchdog already refunded:`, err);
+    } else {
+      console.error(`[${apiId}] Build failed:`, err);
+      const msg = err instanceof Error ? err.message : String(err);
+      refundFailedBuild(apiId, creatorId, msg);
+    }
   } finally {
     finished = true;
     clearTimeout(watchdog);
@@ -221,10 +258,14 @@ async function runBuildPipeline(
 /**
  * Mark an API failed, refund the creator's build cost, and wipe the
  * build_cost earning row so the dashboard reflects that nothing was
- * actually spent on a failed build.
+ * actually spent on a failed build. Stores a human-readable reason so the
+ * build UI can show why.
  */
-function refundFailedBuild(apiId: string, creatorId: string) {
-  updateApiStatus(apiId, "failed", { build_cost: 0 });
+function refundFailedBuild(apiId: string, creatorId: string, reason?: string) {
+  updateApiStatus(apiId, "failed", {
+    build_cost: 0,
+    last_error: (reason || "Unknown error").slice(0, 500),
+  });
   creditBalance(creatorId, BUILD_COST_USD);
   deleteBuildCostEarnings(apiId);
 }

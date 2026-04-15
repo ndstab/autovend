@@ -90,7 +90,14 @@
       "Bash(pkill -f \"uvicorn main:app\")",
       "Bash(curl -s http://localhost:3001/api/dashboard/demo_user)",
       "Bash(python3 -c ':*)",
-      "Bash(npm view:*)"
+      "Bash(npm view:*)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(node_modules/.bin/tsc -b --noEmit)",
+      "Bash(node_modules/.bin/tsc -b)",
+      "Bash(node_modules/.bin/tsc -b --noEmit --force)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(echo \"backend exit=$?\")",
+      "Bash(echo \"frontend exit=$?\")"
     ]
   }
 }

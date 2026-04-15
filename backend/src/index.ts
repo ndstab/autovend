@@ -8,13 +8,25 @@ import { webhooksRouter } from "./routes/webhooks.js";
 import { checkoutRouter } from "./routes/checkout.js";
 import { proxyRouter } from "./routes/proxy.js";
 import { initDb, getLiveApiIds } from "./db/schema.js";
-import { restartLiveApis } from "./services/executor.js";
+import { restartLiveApis, setBaseUrl } from "./services/executor.js";
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
+
+// Capture the first request's origin as a fallback public base URL so
+// callers don't see `http://localhost:3001` in their curl examples when
+// AUTOVEND_BASE_URL isn't explicitly set.
+app.use((req, _res, next) => {
+  const proto = (req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0]?.trim() || req.protocol;
+  const host = (req.headers["x-forwarded-host"] as string | undefined) || req.headers.host;
+  if (proto && host && !/^(localhost|127\.)/i.test(String(host))) {
+    setBaseUrl(`${proto}://${host}`);
+  }
+  next();
+});
 
 // Initialize database
 initDb();

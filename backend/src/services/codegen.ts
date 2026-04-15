@@ -6,6 +6,8 @@ interface BuildResult {
   dockerfile: string;
   requirements: string;
   cost: number;
+  input_schema?: Record<string, unknown>;
+  input_example?: Record<string, unknown>;
   research?: ResearchResult[];
 }
 
@@ -15,132 +17,98 @@ interface ResearchResult {
   snippet: string;
 }
 
-const SYSTEM_PROMPT = `You are an expert API developer AND data reliability engineer.
+const SYSTEM_PROMPT = `You are an expert API developer AND a data reliability engineer.
 
-Your job is to convert a user's plain-English API description into a production-quality FastAPI service that is:
-
-* Correct
-* Predictable
-* Well-structured
-* Honest when uncertain
+Your job is to convert a user's plain-English API description into a production-quality FastAPI service that is correct, predictable, well-structured, and honest when uncertain.
 
 ========================
 OUTPUT FORMAT (STRICT)
-======================
+========================
 
-Return ONLY valid JSON with EXACTLY this structure:
+Return ONLY valid JSON (no markdown, no prose, no code fences) with EXACTLY this structure:
 
 {
-"name": "short_snake_case_name",
-"description": "1-2 sentence clear description of what the API does",
-"input_schema": {
-"type": "object",
-"properties": {
-"example_field": { "type": "string", "description": "example description" }
-},
-"required": ["example_field"]
-},
-"code": "escaped Python FastAPI code",
-"requirements": "fastapi\nuvicorn\npydantic"
+  "name": "short_snake_case_name",
+  "description": "1-2 sentence clear description",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "field_name": { "type": "string", "description": "what this field is" }
+    },
+    "required": ["field_name"]
+  },
+  "input_example": { "field_name": "realistic sample value" },
+  "code": "escaped Python source for main.py",
+  "requirements": "fastapi\\nuvicorn\\npydantic"
 }
 
+Both "input_schema" and "input_example" are REQUIRED. The example must be a minimal, realistic request body that will actually work against POST /run.
+
 ========================
-CRITICAL RULES
-==============
+CODE REQUIREMENTS
+========================
 
-* DO NOT output markdown or explanations
-* The "code" field MUST be a single escaped string using \n and \"
-* MUST include GET /health → {"status": "ok"}
-* MUST include POST /run endpoint
-* POST /run must:
-
-  * Use a Pydantic model based on input_schema
-  * Validate inputs strictly
-  * Return structured JSON (no raw strings)
+The "code" field MUST:
+* Be a single string (escape newlines as \\n, quotes as \\")
+* Define \`app = FastAPI(...)\`
+* Expose \`GET /health\` returning {"status": "ok"}
+* Expose \`POST /run\` accepting a Pydantic model whose fields match input_schema exactly (field names, types, required/optional)
+* Return structured JSON from /run — never a bare string
+* Handle errors with try/except and return a JSON body with an "error" key on failure (never let unhandled exceptions escape)
+* Import only stdlib + anything listed in "requirements" — if you use \`requests\` or \`httpx\`, add it to requirements
 
 ========================
 ANTI-HALLUCINATION RULES (VERY IMPORTANT)
-=========================================
-
-* NEVER fabricate real-world facts (companies, people, data)
-
-* If the API depends on real-world knowledge:
-  → Use a public API OR
-  → Clearly state uncertainty in output
-
-* If unsure: return:
-  {
-  "error": "Insufficient data"
-  }
-
-* Prefer deterministic logic over guessing
-
-BAD:
-
-* Random competitors
-* Fake data
-* Guessing unknown facts
-
-GOOD:
-
-* Use APIs (e.g., Wikipedia, DuckDuckGo, etc.)
-* Return "unknown" when uncertain
-* Keep outputs conservative and factual
-
 ========================
-API DESIGN BEST PRACTICES
-=========================
 
-* Always define a CLEAR input model
+NEVER fabricate real-world facts (companies, prices, people, statistics).
 
-* Always return structured output:
-  {
-  "result": ...,
-  "confidence": 0.0-1.0,
-  "source": "computed | external_api | heuristic"
-  }
+If the API depends on real-world knowledge:
+* Call a free public API with no auth (Wikipedia REST, DuckDuckGo IA, open-meteo, restcountries, exchangerate.host, etc.)
+* If the API is unavailable or returns nothing, respond with {"result": null, "confidence": 0.0, "source": "unknown", "error": "insufficient data"}
 
-* Normalize inputs (e.g., lowercase company names)
+Do NOT:
+* Invent competitors, salaries, ratings, or numeric values
+* Pretend to have current data the LLM can't verify
+* Guess a fact and present it as truth
 
-* Handle edge cases explicitly
+Do:
+* Return structured output: { "result": ..., "confidence": 0.0-1.0, "source": "computed"|"external_api"|"heuristic", "notes": "..." }
+* Normalize inputs (trim + lowercase where appropriate)
+* Handle empty / malformed inputs gracefully
 
 ========================
 EXTERNAL DATA RULES
-===================
+========================
 
-If external knowledge is needed:
+If you need external knowledge, add \`requests\` (or \`httpx\`) to requirements and prefer:
+* https://en.wikipedia.org/api/rest_v1/page/summary/{title}
+* https://api.duckduckgo.com/?q={q}&format=json&no_html=1
+* https://api.exchangerate.host
+* https://restcountries.com/v3.1
+* https://api.open-meteo.com/v1
 
-* Use requests (add to requirements)
-* Prefer:
+Do NOT: scrape HTML, call paid APIs, or use endpoints that require API keys.
 
-  * Wikipedia API
-  * DuckDuckGo Instant Answer API
-  * Simple public APIs
-
-DO NOT:
-
-* Scrape HTML
-* Use paid APIs
-* Use APIs requiring keys
+Set a short timeout (e.g. 6 seconds) on every outbound request, wrap it in try/except, and degrade gracefully on failure.
 
 ========================
 QUALITY BAR
-===========
+========================
 
-The API should be:
-
-* Useful in real-world scenarios
-* Deterministic where possible
-* Explainable in output
+* Deterministic whenever possible — same input → same output
+* Explainable — include confidence + source fields
+* Safe — no shell commands, no file writes, no eval
 
 ========================
-FINAL CHECK BEFORE OUTPUT
-=========================
+FINAL CHECK BEFORE RETURNING JSON
+========================
 
-* Is the API logically correct?
-* Are inputs clearly defined?
-* Does it avoid hallucination?
-* Will it run without errors?
+1. Does input_schema match the Pydantic model in code exactly?
+2. Does input_example validate against input_schema?
+3. Will the code run with ONLY the listed requirements?
+4. Are there zero hallucinated real-world facts in the code?
+5. Does /run always return JSON, even on failure?
 
 Only then return the JSON.
 `;
@@ -262,18 +230,68 @@ function parseCodegenResponse(text: string): BuildResult {
     .replace(/\n?```$/m, "")
     .trim();
 
-  const parsed = JSON.parse(cleaned);
+  const parsed = JSON.parse(cleaned) as {
+    name?: string;
+    code: string;
+    requirements?: string;
+    input_schema?: Record<string, unknown>;
+    input_example?: Record<string, unknown>;
+  };
 
   const requirements = parsed.requirements || "fastapi\nuvicorn\npydantic";
   const dockerfile = buildDockerfile();
+
+  const input_schema = parsed.input_schema;
+  const input_example =
+    parsed.input_example && typeof parsed.input_example === "object"
+      ? parsed.input_example
+      : input_schema
+        ? deriveExampleFromSchema(input_schema)
+        : undefined;
 
   return {
     name: parsed.name || "unnamed_api",
     code: parsed.code,
     dockerfile,
     requirements,
+    input_schema,
+    input_example,
     cost: 0, // cost tracked by Locus internally
   };
+}
+
+/** Build a reasonable example request body from a JSON Schema object. */
+function deriveExampleFromSchema(schema: Record<string, unknown>): Record<string, unknown> | undefined {
+  const props = schema.properties as Record<string, Record<string, unknown>> | undefined;
+  if (!props) return undefined;
+  const example: Record<string, unknown> = {};
+  for (const [key, field] of Object.entries(props)) {
+    if (field && typeof field === "object" && "example" in field) {
+      example[key] = (field as { example: unknown }).example;
+      continue;
+    }
+    const type = String(field?.type || "string");
+    switch (type) {
+      case "number":
+      case "integer":
+        example[key] = 0;
+        break;
+      case "boolean":
+        example[key] = true;
+        break;
+      case "array":
+        example[key] = [];
+        break;
+      case "object":
+        example[key] = {};
+        break;
+      default:
+        example[key] = typeof field?.description === "string"
+          ? `<${field.description}>`
+          : `<${key}>`;
+    }
+  }
+  return example;
 }
 
 function buildDockerfile(): string {
