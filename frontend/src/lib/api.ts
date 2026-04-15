@@ -43,6 +43,7 @@ export function getBuildStatus(apiId: string) {
     name: string;
     status: string;
     endpoint: string | null;
+    agent_id: string | null;
     build_cost: number;
   }>("GET", `/api/build/${apiId}/status`);
 }
@@ -113,4 +114,23 @@ export function forceConfirmDeposit(sessionId: string) {
   return request<{ paid: boolean; balance: number; via?: string; error?: string }>(
     "POST", `/api/checkout/force-confirm/${sessionId}`
   );
+}
+
+// ─── Admin ──────────────────────────────────────────────────
+
+export async function withdrawUsdc(toAddress: string, amount: number, memo?: string) {
+  const adminSecret = import.meta.env.VITE_ADMIN_SECRET || "";
+  const res = await fetch(`${API_BASE}/api/dashboard/withdraw`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Admin-Secret": adminSecret,
+    },
+    body: JSON.stringify({ to_address: toAddress, amount, memo: memo || "AutoVend withdrawal" }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || res.statusText);
+  }
+  return res.json() as Promise<{ success: boolean; transaction: unknown }>;
 }

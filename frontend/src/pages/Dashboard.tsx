@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import Card from "../components/Card";
 import StatusBadge from "../components/StatusBadge";
-import { getDashboard, getBalance, createFundSession, pollDeposit, forceConfirmDeposit, type DashboardStats, type ApiRecord } from "../lib/api";
+import { getDashboard, getBalance, createFundSession, pollDeposit, forceConfirmDeposit, withdrawUsdc, type DashboardStats, type ApiRecord } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
 export default function Dashboard() {
@@ -107,16 +107,13 @@ export default function Dashboard() {
     if (!withdrawAddress || !locusBalance) return;
     setWithdrawLoading(true);
     try {
-      await fetch("/api/dashboard/withdraw", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to_address: withdrawAddress, amount: locusBalance, memo: "AutoVend withdrawal" }),
-      });
+      await withdrawUsdc(withdrawAddress, locusBalance);
       setShowWithdraw(false);
       setWithdrawAddress("");
       setTimeout(loadAll, 2000);
     } catch (err) {
       console.error("Withdraw failed:", err);
+      alert(err instanceof Error ? err.message : "Withdraw failed");
     } finally {
       setWithdrawLoading(false);
     }

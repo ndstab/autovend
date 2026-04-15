@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { nanoid } from "nanoid";
-import { createApi, updateApiStatus, recordEarning, upsertUser, deductBalance, getUser } from "../db/schema.js";
+import { createApi, updateApiStatus, recordEarning, upsertUser, deductBalance, creditBalance, deleteBuildCostEarnings, getUser } from "../db/schema.js";
 import { buildApi } from "../services/codegen.js";
 import { deployService } from "../services/deploy.js";
 import { locus } from "../lib/locus.js";
@@ -41,7 +41,12 @@ buildRouter.post("/", async (req: Request, res: Response) => {
   }
 
   // Deduct build cost immediately (hold funds)
-  deductBalance(creator_id, BUILD_COST_USD);
+  const ok = deductBalance(creator_id, BUILD_COST_USD);
+  if (!ok) {
+    // Concurrent-request race: another build just drained the balance.
+    res.status(402).json({ error: "Insufficient balance" });
+    return;
+  }
 
   // Insert record immediately so status polling works
   createApi({
@@ -52,6 +57,15 @@ buildRouter.post("/", async (req: Request, res: Response) => {
     price_usd: price,
     wallet_id: process.env.LOCUS_WALLET_ID,
     build_cost: BUILD_COST_USD,
+  });
+
+  // Record the build cost as an earning row (negative amount) so the dashboard
+  // shows real numbers. Done up-front so it appears even if the pipeline fails.
+  recordEarning({
+    id: nanoid(12),
+    api_id: apiId,
+    amount: -BUILD_COST_USD,
+    type: "build_cost",
   });
 
   // Return immediately — build runs async
@@ -88,7 +102,7 @@ buildRouter.get("/:id/status", async (req: Request, res: Response) => {
   const id = req.params.id as string;
   const db = (await import("../db/schema.js")).getDb();
   const api = db
-    .prepare("SELECT id, name, status, endpoint, build_cost FROM apis WHERE id = ?")
+    .prepare("SELECT id, name, status, endpoint, agent_id, build_cost FROM apis WHERE id = ?")
     .get(id);
 
   if (!api) {
@@ -123,10 +137,9 @@ const BUILD_TIMEOUT_MS = 180_000; // 3 minutes hard cap
 async function runBuildPipeline(
   apiId: string,
   description: string,
-  _creatorId: string,
+  creatorId: string,
   priceUsd: number
 ) {
-  let totalCost = 0;
   let finished = false;
 
   // Watchdog: if build isn't done in 3 min, force-fail it so it doesn't hang.
@@ -134,17 +147,22 @@ async function runBuildPipeline(
     if (finished) return;
     console.error(`[${apiId}] Build timeout — force failing`);
     try {
-      updateApiStatus(apiId, "failed");
+      refundFailedBuild(apiId, creatorId);
     } catch (e) {
-      console.error(`[${apiId}] watchdog update failed:`, e);
+      console.error(`[${apiId}] watchdog refund failed:`, e);
     }
   }, BUILD_TIMEOUT_MS);
 
   try {
-    // Step 1: Codegen via Locus wrapped Anthropic (falls back to direct API)
-    console.log(`[${apiId}] Starting codegen...`);
-    const { name, code, dockerfile, requirements, cost } = await buildApi(description);
-    totalCost += cost;
+    // Step 1: Codegen — kicks off Exa research internally, then Locus wrapped
+    // Anthropic (falls back to direct Anthropic API).
+    console.log(`[${apiId}] Starting codegen (with Exa research)...`);
+    const { name, code, dockerfile, requirements, research } = await buildApi(description);
+
+    if (research && research.length) {
+      console.log(`[${apiId}] Exa surfaced ${research.length} source(s):`);
+      research.forEach((r, i) => console.log(`  [${i + 1}] ${r.title} — ${r.url}`));
+    }
 
     // Update name in DB
     const db = (await import("../db/schema.js")).getDb();
@@ -161,32 +179,52 @@ async function runBuildPipeline(
       priceUsd,
     });
 
-    // Step 3: Register x402 — if we have a real slug from Locus, great; otherwise skip
-    // x402 endpoints are managed in the Locus dashboard for now
     console.log(`[${apiId}] Endpoint: ${deployment.url}`);
 
-    // Step 4: Mark live
+    // Step 3: Register ERC-8004 agent identity via Locus.
+    // This mints a new Locus agent for the deployed API, giving it its own
+    // on-chain identity + wallet. We store the resulting wallet address as
+    // the agent_id on the API row.
+    let agentId: string | undefined;
+    try {
+      const reg = await locus.register(
+        `autovend-${name}-${apiId}`.slice(0, 64),
+        `agents+${apiId}@autovend.ai`
+      );
+      if (reg.success && reg.data?.walletAddress) {
+        agentId = reg.data.walletAddress;
+        console.log(`[${apiId}] Agent identity registered: ${agentId}`);
+      } else {
+        console.warn(`[${apiId}] Agent registration failed:`, reg.error);
+      }
+    } catch (err) {
+      console.warn(`[${apiId}] Agent registration threw:`, err);
+    }
+
+    // Mark live (with agent_id if we got one)
     updateApiStatus(apiId, "live", {
       endpoint: deployment.url,
-      build_cost: totalCost,
+      build_cost: BUILD_COST_USD,
+      agent_id: agentId,
     });
-
-    // Step 5: Record build cost earning
-    if (totalCost > 0) {
-      recordEarning({
-        id: nanoid(12),
-        api_id: apiId,
-        amount: -totalCost,
-        type: "build_cost",
-      });
-    }
 
     console.log(`[${apiId}] Live at ${deployment.url}`);
   } catch (err) {
     console.error(`[${apiId}] Build failed:`, err);
-    updateApiStatus(apiId, "failed");
+    refundFailedBuild(apiId, creatorId);
   } finally {
     finished = true;
     clearTimeout(watchdog);
   }
+}
+
+/**
+ * Mark an API failed, refund the creator's build cost, and wipe the
+ * build_cost earning row so the dashboard reflects that nothing was
+ * actually spent on a failed build.
+ */
+function refundFailedBuild(apiId: string, creatorId: string) {
+  updateApiStatus(apiId, "failed", { build_cost: 0 });
+  creditBalance(creatorId, BUILD_COST_USD);
+  deleteBuildCostEarnings(apiId);
 }

@@ -3,10 +3,16 @@ import Card from "../components/Card";
 import StatusBadge from "../components/StatusBadge";
 import { listApis, type ApiRecord } from "../lib/api";
 
+const API_BASE = import.meta.env.VITE_API_URL || "";
+
 export default function Marketplace() {
   const [apis, setApis] = useState<ApiRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<ApiRecord | null>(null);
+  const [testInput, setTestInput] = useState<string>('{}');
+  const [testResult, setTestResult] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testError, setTestError] = useState<string | null>(null);
 
   useEffect(() => {
     listApis()
@@ -14,6 +20,49 @@ export default function Marketplace() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  function selectApi(api: ApiRecord) {
+    const isSame = selected?.id === api.id;
+    setSelected(isSame ? null : api);
+    setTestResult(null);
+    setTestError(null);
+    if (!isSame) setTestInput('{}');
+  }
+
+  async function runPayAndTry(api: ApiRecord) {
+    if (!api.endpoint) return;
+    setTesting(true);
+    setTestResult(null);
+    setTestError(null);
+    try {
+      // Parse/validate JSON before sending
+      let body: unknown = {};
+      try {
+        body = testInput.trim() ? JSON.parse(testInput) : {};
+      } catch {
+        setTestError("Request body must be valid JSON");
+        setTesting(false);
+        return;
+      }
+
+      const testUrl = `${API_BASE}${new URL(api.endpoint).pathname}/test`;
+      const res = await fetch(testUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setTestError(json.error || json.details || `HTTP ${res.status}`);
+      } else {
+        setTestResult(JSON.stringify(json.result ?? json, null, 2));
+      }
+    } catch (err) {
+      setTestError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setTesting(false);
+    }
+  }
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-12">
@@ -52,9 +101,7 @@ export default function Marketplace() {
               hover
               className={selected?.id === api.id ? "border-accent/30" : ""}
             >
-              <div
-                onClick={() => setSelected(selected?.id === api.id ? null : api)}
-              >
+              <div onClick={() => selectApi(api)}>
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-text text-sm font-bold">
                     {api.name || api.id}
@@ -89,20 +136,45 @@ export default function Marketplace() {
                   )}
 
                   <div>
-                    <div className="text-text-dim text-xs mb-1">
-                      try it (x402 payment required)
-                    </div>
-                    <div className="bg-bg border border-border px-3 py-2 text-text-dim text-xs font-mono">
-                      curl -X POST {api.endpoint || "..."}/run \<br />
-                      &nbsp;&nbsp;-H "X-402-Payment: &lt;token&gt;" \<br />
+                    <div className="text-text-dim text-xs mb-1">request body (JSON)</div>
+                    <textarea
+                      value={testInput}
+                      onChange={(e) => setTestInput(e.target.value)}
+                      className="w-full bg-bg border border-border px-3 py-2 text-text text-xs font-mono resize-none outline-none focus:border-accent/50 min-h-[70px]"
+                      placeholder='{"key": "value"}'
+                    />
+                  </div>
+
+                  <div>
+                    <div className="text-text-dim text-xs mb-1">curl (production)</div>
+                    <div className="bg-bg border border-border px-3 py-2 text-text-dim text-xs font-mono break-all">
+                      curl -X POST {api.endpoint || "..."} \<br />
+                      &nbsp;&nbsp;-H "X-Locus-Key: &lt;your-locus-api-key&gt;" \<br />
                       &nbsp;&nbsp;-H "Content-Type: application/json" \<br />
-                      &nbsp;&nbsp;-d '{"{}"}'
+                      &nbsp;&nbsp;-d '{testInput}'
                     </div>
                   </div>
 
-                  <button className="w-full px-4 py-2 bg-accent text-bg text-xs font-bold hover:bg-accent/90">
-                    PAY &amp; TRY — ${api.price_usd} USDC
+                  <button
+                    onClick={() => runPayAndTry(api)}
+                    disabled={testing}
+                    className="w-full px-4 py-2 bg-accent text-bg text-xs font-bold hover:bg-accent/90 disabled:opacity-50"
+                  >
+                    {testing ? "CALLING..." : `PAY & TRY — $${api.price_usd} USDC`}
                   </button>
+
+                  {testError && (
+                    <div className="text-error text-xs">{testError}</div>
+                  )}
+
+                  {testResult && (
+                    <div>
+                      <div className="text-text-dim text-xs mb-1">response</div>
+                      <pre className="bg-bg border border-border px-3 py-2 text-success text-xs font-mono overflow-auto max-h-48">
+                        {testResult}
+                      </pre>
+                    </div>
+                  )}
                 </div>
               )}
             </Card>
