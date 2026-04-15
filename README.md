@@ -245,9 +245,3 @@ X-Admin-Secret: ...
 
 ---
 
-## Hackathon Context
-
-- **Event:** Locus Paygentic Hackathon Week 1
-- **Theme:** "Hack An Agent That Makes YOU Money"
-- **Prize:** $1,000
-- **Judging criteria:** Technical execution · Real-world applicability · Innovation · Agent autonomy
