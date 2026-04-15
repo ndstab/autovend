@@ -46,3 +46,98 @@ body {
   background: var(--color-accent);
   color: #000;
 }
+
+@keyframes ambientDrift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.2;
+  }
+  50% {
+    transform: translate3d(0, -14px, 0) scale(1.04);
+    opacity: 0.34;
+  }
+}
+
+@keyframes softPulse {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 0.42;
+  }
+}
+
+@keyframes rowEnter {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ambient-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(200, 255, 0, 0.12), transparent 42%),
+    radial-gradient(circle at 84% 22%, rgba(200, 255, 0, 0.08), transparent 38%),
+    radial-gradient(circle at 50% 78%, rgba(255, 255, 255, 0.04), transparent 42%);
+}
+
+.ambient-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(circle at center, rgba(0, 0, 0, 0.85), transparent 85%);
+  opacity: 0.18;
+}
+
+.ambient-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(56px);
+  animation: ambientDrift 9s ease-in-out infinite;
+}
+
+.ambient-orb-a {
+  width: 320px;
+  height: 320px;
+  left: -80px;
+  top: 140px;
+  background: rgba(200, 255, 0, 0.12);
+}
+
+.ambient-orb-b {
+  width: 300px;
+  height: 300px;
+  right: -90px;
+  top: 220px;
+  background: rgba(200, 255, 0, 0.09);
+  animation-delay: 1.8s;
+}
+
+.build-step-enter {
+  animation: rowEnter 320ms ease-out both;
+}
+
+.build-step-glow {
+  animation: softPulse 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ambient-orb,
+  .build-step-enter,
+  .build-step-glow {
+    animation: none;
+  }
+}

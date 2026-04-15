@@ -179,6 +179,10 @@ export default function Build() {
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-12">
+      <div className="ambient-bg" aria-hidden>
+        <div className="ambient-orb ambient-orb-a" />
+        <div className="ambient-orb ambient-orb-b" />
+      </div>
       <div className="flex items-center gap-3 mb-8">
         <span className="text-text-dim text-xs">// build_pipeline</span>
         <div className="flex-1 h-px bg-border" />
@@ -219,11 +223,16 @@ export default function Build() {
           <div className="text-text-dim text-xs mb-4">pipeline progress</div>
           <div className="space-y-3">
             {steps.map((step) => (
-              <div key={step.id} className="flex items-center gap-3">
+              <div
+                key={step.id}
+                className={`flex items-center gap-3 px-2 py-1.5 -mx-2 rounded-sm transition-colors duration-300 build-step-enter ${
+                  step.status === "active" ? "bg-accent/5" : ""
+                }`}
+              >
                 <div className="w-5 h-5 flex items-center justify-center text-xs">
                   {step.status === "done" && <span className="text-success">&#10003;</span>}
                   {step.status === "active" && (
-                    <span className="text-accent animate-pulse">&#9679;</span>
+                    <span className="text-accent build-step-glow">&#9679;</span>
                   )}
                   {step.status === "pending" && <span className="text-text-dim">&#9675;</span>}
                   {step.status === "error" && <span className="text-error">&#10007;</span>}

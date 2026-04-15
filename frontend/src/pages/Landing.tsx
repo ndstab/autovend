@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Card from "../components/Card";
 import { useAuth } from "../lib/auth";
@@ -43,8 +43,39 @@ const stats = [
 
 export default function Landing() {
   const [description, setDescription] = useState("");
+  const heroTarget = "Earn USDC while you sleep.";
+  const [heroLine, setHeroLine] = useState(heroTarget);
   const navigate = useNavigate();
   const { user } = useAuth();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      return;
+    }
+
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#$%&";
+    const totalFrames = 32;
+    let frame = 0;
+    const timer = window.setInterval(() => {
+      const settled = Math.floor((frame / totalFrames) * heroTarget.length);
+      const next = heroTarget
+        .split("")
+        .map((char, i) => {
+          if (char === " " || i < settled) return char;
+          return chars[Math.floor(Math.random() * chars.length)];
+        })
+        .join("");
+      setHeroLine(next);
+      frame += 1;
+      if (frame > totalFrames) {
+        window.clearInterval(timer);
+        setHeroLine(heroTarget);
+      }
+    }, 42);
+
+    return () => window.clearInterval(timer);
+  }, []);
 
   function handleBuild() {
     if (!description.trim()) return;
@@ -59,6 +90,10 @@ export default function Landing() {
 
   return (
     <div className="max-w-6xl mx-auto px-6">
+      <div className="ambient-bg" aria-hidden>
+        <div className="ambient-orb ambient-orb-a" />
+        <div className="ambient-orb ambient-orb-b" />
+      </div>
       {/* Hero */}
       <section className="pt-24 pb-16">
         <div className="flex items-center gap-2 mb-6">
@@ -71,7 +106,7 @@ export default function Landing() {
         <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight leading-tight mb-6">
           Describe an API.
           <br />
-          <span className="text-accent">Earn USDC while you sleep.</span>
+          <span className="text-accent">{heroLine}</span>
         </h1>
 
         <p className="text-text-mid text-sm md:text-base max-w-2xl mb-12 leading-relaxed">
@@ -172,10 +207,13 @@ export default function Landing() {
               { step: "04", label: "x402 gate", icon: "$" },
               { step: "05", label: "earn USDC", icon: "+" },
             ].map((s, i) => (
-              <div key={i} className="flex items-center gap-3 flex-1">
+              <div
+                key={i}
+                className="flex items-center gap-3 flex-1 transition-transform duration-300 hover:-translate-y-0.5"
+              >
                 <div className="flex items-center gap-2">
                   <span className="text-accent font-bold">{s.step}</span>
-                  <span className="w-7 h-7 flex items-center justify-center border border-border-bright text-accent text-xs">
+                  <span className="w-7 h-7 flex items-center justify-center border border-border-bright text-accent text-xs build-step-glow">
                     {s.icon}
                   </span>
                   <span className="text-text-mid">{s.label}</span>
