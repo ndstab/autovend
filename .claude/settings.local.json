@@ -97,7 +97,9 @@
       "Bash(node_modules/.bin/tsc -b --noEmit --force)",
       "Bash(echo \"exit=$?\")",
       "Bash(echo \"backend exit=$?\")",
-      "Bash(echo \"frontend exit=$?\")"
+      "Bash(echo \"frontend exit=$?\")",
+      "Bash(echo \"backend=$?\")",
+      "Bash(echo \"frontend=$?\")"
     ]
   }
 }

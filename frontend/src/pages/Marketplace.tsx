@@ -123,16 +123,9 @@ export default function Marketplace() {
                   <span className="text-accent text-xs font-bold">
                     ${api.price_usd}/call
                   </span>
-                  <div className="flex items-center gap-3">
-                    <span className="text-text-dim text-xs">
-                      {api.call_count} {api.call_count === 1 ? "call" : "calls"}
-                    </span>
-                    {api.agent_id && (
-                      <span className="text-text-dim text-xs">
-                        agent: {api.agent_id.slice(0, 8)}...
-                      </span>
-                    )}
-                  </div>
+                  <span className="text-text-dim text-xs">
+                    {api.call_count} {api.call_count === 1 ? "call" : "calls"}
+                  </span>
                 </div>
               </div>
 

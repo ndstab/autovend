@@ -34,14 +34,14 @@ You type:  "An API that extracts salary ranges from a job title and location"
 ┌──────────────▼──────────────────────┐
 │  Backend (Node + Express + SQLite)  │  deployed on Railway
 │                                     │
-│  POST /api/build      build pipeline│
-│  GET  /api/apis       marketplace   │
-│  POST /api/call/:id   x402 proxy    │
-│  POST /api/call/:id/test  free test │
-│  GET  /api/dashboard/:id  earnings  │
-│  POST /api/checkout/fund  top-up    │
-│  POST /api/dashboard/withdraw       │
-│  POST /webhooks/locus  events       │
+│  POST /api/build        build pipeline│
+│  GET  /api/apis         marketplace   │
+│  POST /api/call/:id     x402 proxy    │
+│  POST /api/call/:id/test  free test   │
+│  GET  /api/dashboard/:id  earnings    │
+│  POST /api/checkout/fund  top-up      │
+│  POST /api/dashboard/withdraw         │
+│  POST /webhooks/locus   events        │
 └──────────────┬──────────────────────┘
                │ subprocess
 ┌──────────────▼──────────────────────┐
@@ -54,16 +54,15 @@ You type:  "An API that extracts salary ranges from a job title and location"
 
 ---
 
-## Locus Features Used
+## Locus Features Used (5)
 
 | Feature | Where |
 |---|---|
-| **Pay-per-use APIs** | Codegen: Claude + Exa calls paid per-token via Locus |
+| **Pay-per-use APIs** | Codegen: Claude + Exa calls paid per-token via Locus during the build pipeline |
 | **Checkout** | Creators top up their AutoVend balance via Locus checkout sessions |
-| **x402 Protocol** | Every generated API endpoint is pay-per-call — callers send their Locus key, we pull USDC |
-| **Transfers / Send** | Withdraw earnings to any wallet address; payment collection from callers |
-| **Smart Wallet / Balance** | Platform wallet tracks Locus USDC balance in real time |
-| **ERC-8004 Agent Identity** | Each deployed API registers its own on-chain agent identity via `POST /api/register` |
+| **x402 Protocol** | Every generated API endpoint is pay-per-call — callers include their Locus key, we pull USDC |
+| **Transfers / Send** | Withdraw earnings to any wallet address; payment collection from callers per call |
+| **Smart Wallet / Balance** | Platform wallet balance shown live on the dashboard |
 
 ---
 
@@ -88,13 +87,12 @@ CREATOR WITHDRAWAL
 
 ## Build Pipeline (step by step)
 
-1. **Parse** — user description sent to Exa to surface relevant public APIs, libraries, and data formats
-2. **Codegen** — enriched description + Exa context sent to Claude via Locus pay-per-use; returns FastAPI code + Pydantic models + input schema + working example
+1. **Research** — user description sent to Exa (via Locus pay-per-use) to surface relevant public APIs, libraries, and data formats
+2. **Codegen** — enriched description + Exa context sent to Claude (via Locus pay-per-use); returns FastAPI code + Pydantic models + input schema + working example
 3. **Install** — `pip install --user --break-system-packages` (PEP 668 safe), venv fallback if needed
 4. **Deploy** — `uvicorn` subprocess spawned on a free port (4000–4999); health-polled until ready
 5. **x402 gate** — proxy at `/api/call/:id` handles USDC collection before forwarding to the subprocess
-6. **Agent identity** — `POST /api/register` on Locus mints an ERC-8004 on-chain identity for the API
-7. **Live** — DB updated, endpoint URL returned, creator starts earning
+6. **Live** — DB updated, endpoint URL returned, creator starts earning
 
 ---
 

@@ -169,7 +169,7 @@ export function createApi(api: {
 }
 
 export function updateApiStatus(id: string, status: string, updates?: {
-  endpoint?: string; agent_id?: string; build_cost?: number;
+  endpoint?: string; build_cost?: number;
   input_schema?: string; input_example?: string; last_error?: string | null;
 }) {
   const database = getDb();
@@ -177,7 +177,6 @@ export function updateApiStatus(id: string, status: string, updates?: {
   const values: unknown[] = [status];
 
   if (updates?.endpoint)                 { sets.push("endpoint = ?");      values.push(updates.endpoint); }
-  if (updates?.agent_id)                 { sets.push("agent_id = ?");      values.push(updates.agent_id); }
   if (updates?.build_cost !== undefined) { sets.push("build_cost = ?");    values.push(updates.build_cost); }
   if (updates?.input_schema)             { sets.push("input_schema = ?");  values.push(updates.input_schema); }
   if (updates?.input_example)            { sets.push("input_example = ?"); values.push(updates.input_example); }
