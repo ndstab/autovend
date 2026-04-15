@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import Card from "../components/Card";
 import StatusBadge from "../components/StatusBadge";
-import { getDashboard, getBalance, createFundSession, pollDeposit, forceConfirmDeposit, withdrawUsdc, type DashboardStats, type ApiRecord } from "../lib/api";
+import { getDashboard, getBalance, createFundSession, pollDeposit, forceConfirmDeposit, withdrawUsdc, deleteApi, type DashboardStats, type ApiRecord } from "../lib/api";
 import { useAuth } from "../lib/auth";
 
 export default function Dashboard() {
@@ -321,31 +321,90 @@ export default function Dashboard() {
           ) : (
             <div className="space-y-3">
               {apis.map((api) => (
-                <Card key={api.id} hover>
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-text text-sm font-bold">{api.name || api.id}</span>
-                        <StatusBadge status={api.status} />
-                      </div>
-                      <p className="text-text-dim text-xs truncate mb-2">{api.description}</p>
-                      {api.endpoint && (
-                        <div className="text-accent text-xs truncate font-mono">{api.endpoint}</div>
-                      )}
-                    </div>
-                    <div className="text-right shrink-0">
-                      <div className="text-accent text-sm font-bold">${api.price_usd}/call</div>
-                      <div className="text-text-dim text-xs mt-1">
-                        build: ${api.build_cost.toFixed(2)}
-                      </div>
-                    </div>
-                  </div>
-                </Card>
+                <ApiCard
+                  key={api.id}
+                  api={api}
+                  creatorId={creatorId}
+                  onDeleted={loadAll}
+                  onBuildAnother={() => navigate("/build")}
+                />
               ))}
             </div>
           )}
         </>
       )}
     </div>
+  );
+}
+
+function ApiCard({
+  api,
+  creatorId,
+  onDeleted,
+  onBuildAnother,
+}: {
+  api: ApiRecord;
+  creatorId: string;
+  onDeleted: () => void;
+  onBuildAnother: () => void;
+}) {
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete() {
+    if (!confirm(`Delete "${api.name || api.id}"? This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      await deleteApi(api.id, creatorId);
+      onDeleted();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Delete failed");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <Card hover>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <span className="text-text text-sm font-bold">{api.name || api.id}</span>
+            <StatusBadge status={api.status} />
+          </div>
+          <p className="text-text-dim text-xs truncate mb-2">{api.description}</p>
+          {api.endpoint && (
+            <div className="text-accent text-xs truncate font-mono">{api.endpoint}</div>
+          )}
+          {api.status === "failed" && (api as ApiRecord & { last_error?: string }).last_error && (
+            <div className="text-error text-xs mt-1 truncate">
+              {(api as ApiRecord & { last_error?: string }).last_error}
+            </div>
+          )}
+        </div>
+        <div className="text-right shrink-0 flex flex-col items-end gap-2">
+          <div>
+            <div className="text-accent text-sm font-bold">${api.price_usd}/call</div>
+            <div className="text-text-dim text-xs">build: ${api.build_cost.toFixed(2)}</div>
+          </div>
+          <div className="flex gap-2">
+            {api.status === "failed" && (
+              <button
+                onClick={onBuildAnother}
+                className="px-2 py-1 text-xs border border-accent/40 text-accent hover:border-accent"
+              >
+                rebuild
+              </button>
+            )}
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="px-2 py-1 text-xs border border-border text-text-dim hover:text-error hover:border-error/40 disabled:opacity-40"
+            >
+              {deleting ? "..." : "delete"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Card>
   );
 }
