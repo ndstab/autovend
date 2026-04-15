@@ -191,7 +191,35 @@ proxyRouter.post("/:apiId", async (req: Request, res: Response) => {
       body: JSON.stringify(req.body),
     });
 
-    result = await execRes.json();
+    // Always parse the body as text first — FastAPI can return HTML on unhandled
+    // server errors (500), which makes .json() throw and hides the real error.
+    const rawText = await execRes.text();
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch {
+      // FastAPI returned non-JSON (e.g. uvicorn HTML 500 page).
+      console.error(`[proxy] API ${apiId} returned non-JSON (status ${execRes.status}):`, rawText.slice(0, 400));
+      res.status(502).json({
+        error: "API returned an unexpected response",
+        status: execRes.status,
+        details: rawText.slice(0, 400),
+      });
+      return;
+    }
+
+    if (!execRes.ok) {
+      // FastAPI raised an unhandled exception — forward the JSON error detail.
+      console.error(`[proxy] API ${apiId} returned HTTP ${execRes.status}:`, parsed);
+      res.status(execRes.status === 422 ? 422 : 502).json({
+        error: "API execution error",
+        status: execRes.status,
+        details: parsed,
+      });
+      return;
+    }
+
+    result = parsed;
     console.log(`[proxy] API ${apiId} executed successfully`);
   } catch (err) {
     console.error(`[proxy] Execution failed for ${apiId}:`, err);
@@ -267,7 +295,28 @@ proxyRouter.post("/:apiId/test", async (req: Request, res: Response) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(req.body),
     });
-    const result = await execRes.json();
+
+    const rawText = await execRes.text();
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch {
+      res.status(502).json({
+        error: "API returned an unexpected response",
+        status: execRes.status,
+        details: rawText.slice(0, 400),
+      });
+      return;
+    }
+
+    if (!execRes.ok) {
+      res.status(execRes.status === 422 ? 422 : 502).json({
+        error: "API execution error",
+        status: execRes.status,
+        details: parsed,
+      });
+      return;
+    }
 
     // Record earning so dashboard updates live
     const priceUsd = api.price_usd || CALL_PRICE_USD;
@@ -280,7 +329,7 @@ proxyRouter.post("/:apiId/test", async (req: Request, res: Response) => {
     });
     creditBalance(api.creator_id, priceUsd * CREATOR_SHARE);
 
-    res.json({ result, cost: priceUsd, paid: false, note: "Test call — no USDC charged" });
+    res.json({ result: parsed, cost: priceUsd, paid: false, note: "Test call — no USDC charged" });
   } catch (err) {
     res.status(500).json({ error: "API execution failed", details: String(err) });
   }

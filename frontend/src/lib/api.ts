@@ -125,6 +125,10 @@ export function forceConfirmDeposit(sessionId: string) {
   );
 }
 
+export function deleteApi(apiId: string, creatorId: string) {
+  return request<{ success: boolean }>("DELETE", `/api/apis/${apiId}`, { creator_id: creatorId });
+}
+
 // ─── Admin ──────────────────────────────────────────────────
 
 export async function withdrawUsdc(toAddress: string, amount: number, memo?: string) {
