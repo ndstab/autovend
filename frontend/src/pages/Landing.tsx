@@ -38,7 +38,7 @@ const stats = [
   { value: "x402", label: "payment protocol" },
   { value: "USDC", label: "on Base" },
   { value: "<60s", label: "to deploy" },
-  { value: "6", label: "Locus features" },
+  { value: "5", label: "Locus features" },
 ];
 
 export default function Landing() {

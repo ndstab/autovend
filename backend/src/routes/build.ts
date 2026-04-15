@@ -3,7 +3,6 @@ import { nanoid } from "nanoid";
 import { createApi, updateApiStatus, recordEarning, upsertUser, deductBalance, creditBalance, deleteBuildCostEarnings, getUser } from "../db/schema.js";
 import { buildApi } from "../services/codegen.js";
 import { deployService } from "../services/deploy.js";
-import { locus } from "../lib/locus.js";
 
 const BUILD_COST_USD = 1.50; // charged to creator per build
 
@@ -112,24 +111,6 @@ buildRouter.get("/:id/status", async (req: Request, res: Response) => {
   res.json(api);
 });
 
-/**
- * POST /api/build/register
- * Helper: register a new Locus agent and return the real claw_ API key.
- * Call this once during setup if you only have the ownerPrivateKey.
- */
-buildRouter.post("/register", async (_req: Request, res: Response) => {
-  const result = await locus.register("AutoVend Platform", "platform@autovend.ai");
-  if (result.success) {
-    res.json({
-      message: "Agent registered. Save your apiKey — it starts with 'claw_'.",
-      apiKey: result.data.apiKey,
-      walletAddress: result.data.walletAddress,
-    });
-  } else {
-    res.status(500).json({ error: result.error });
-  }
-});
-
 // ─── Background pipeline ────────────────────────────────────
 
 const BUILD_TIMEOUT_MS = 180_000; // 3 minutes hard cap
@@ -187,55 +168,14 @@ async function runBuildPipeline(
 
     console.log(`[${apiId}] Endpoint: ${deployment.url}`);
 
-    // Step 3: Register ERC-8004 agent identity via Locus.
-    // This mints a new Locus agent for the deployed API, giving it its own
-    // on-chain identity + wallet. We store the resulting wallet address as
-    // the agent_id on the API row.
-    //
-    // The Locus response shape isn't guaranteed (camelCase vs snake_case, or
-    // nested under `wallet`), so we check several plausible fields. A failed
-    // registration is non-blocking — we just log useful detail.
-    let agentId: string | undefined;
-    try {
-      const reg = await locus.register(
-        `autovend-${name}-${apiId}`.slice(0, 64),
-        `agents+${apiId}@autovend.ai`
-      );
-      if (reg.success) {
-        const data = (reg.data ?? {}) as Record<string, unknown>;
-        const wallet = (data.wallet ?? {}) as Record<string, unknown>;
-        const candidate =
-          data.walletAddress ??
-          data.wallet_address ??
-          data.address ??
-          wallet.address ??
-          wallet.walletAddress;
-        if (typeof candidate === "string" && candidate) {
-          agentId = candidate;
-          console.log(`[${apiId}] Agent identity registered: ${agentId}`);
-        } else {
-          console.warn(
-            `[${apiId}] Agent registered but no wallet address found in response. Keys: ${Object.keys(data).join(", ") || "(none)"}`
-          );
-        }
-      } else {
-        const errMsg = reg.error || "unknown error (Locus returned no detail)";
-        console.warn(`[${apiId}] Agent registration failed: ${errMsg}`);
-      }
-    } catch (err) {
-      console.warn(`[${apiId}] Agent registration threw:`, err);
-    }
-
     if (watchdogFired) {
       // Watchdog already refunded + marked failed while we were still running.
       // Don't overwrite with "live" — the creator already has their money back.
       console.warn(`[${apiId}] Pipeline finished after watchdog fired — discarding success`);
     } else {
-      // Mark live (with agent_id if we got one)
       updateApiStatus(apiId, "live", {
         endpoint: deployment.url,
         build_cost: BUILD_COST_USD,
-        agent_id: agentId,
         input_schema: input_schema ? JSON.stringify(input_schema) : undefined,
         input_example: input_example ? JSON.stringify(input_example) : undefined,
       });
