@@ -5,8 +5,8 @@ import { useAuth } from "../lib/auth";
 
 const examples = [
   "An API that takes a job title and location, and returns an estimated salary range with confidence level",
-  "An API that extracts structured data from any invoice text — line items, totals, dates, vendor",
-  "An API that takes a company name and returns a competitive analysis summary",
+  "An API that extracts structured data from any invoice text — line items, totals, dates, and vendor name",
+  "An API that takes any text and returns readability stats — word count, reading time, and Flesch score",
   "An API that converts natural language dates ('next Tuesday', 'in 3 weeks') into ISO timestamps",
   "An API that takes a product description and generates SEO metadata — title, description, keywords",
 ];
@@ -38,7 +38,7 @@ const stats = [
   { value: "x402", label: "payment protocol" },
   { value: "USDC", label: "on Base" },
   { value: "<60s", label: "to deploy" },
-  { value: "8", label: "Locus features" },
+  { value: "6", label: "Locus features" },
 ];
 
 export default function Landing() {
@@ -240,7 +240,7 @@ export default function Landing() {
             <div className="text-text text-sm mb-2">You pay ~$1.50 to build</div>
             <div className="text-text-dim text-xs leading-relaxed">
               AI codegen costs ~$0.80 in API calls. AutoVend charges $1.50 total.
-              Sub-wallet caps spending at $2 max.
+              The build agent pays per call via Locus — no manual top-ups.
             </div>
           </Card>
           <Card>
