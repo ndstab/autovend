@@ -28,9 +28,23 @@ dashboardRouter.get("/:creatorId", async (req: Request, res: Response) => {
 
 /**
  * POST /api/dashboard/withdraw
- * Withdraw USDC to an address via Locus
+ * Withdraw USDC from the platform wallet to an address.
+ *
+ * Requires X-Admin-Secret header matching ADMIN_SECRET env var.
+ * If ADMIN_SECRET is unset, the endpoint is disabled to prevent accidental drain.
  */
 dashboardRouter.post("/withdraw", async (req: Request, res: Response) => {
+  const adminSecret = process.env.ADMIN_SECRET;
+  if (!adminSecret) {
+    res.status(503).json({ error: "Withdrawals disabled — ADMIN_SECRET not configured" });
+    return;
+  }
+  const provided = req.headers["x-admin-secret"];
+  if (provided !== adminSecret) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
   const { to_address, amount, memo } = req.body;
   if (!to_address || !amount) {
     res.status(400).json({ error: "to_address and amount required" });

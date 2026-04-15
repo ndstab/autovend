@@ -89,7 +89,8 @@
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'APIs: {len\\(d.get\\(\\\\\"apis\\\\\",[]\\)\\)}, Wallet: {d.get\\(\\\\\"wallet\\\\\",{}\\).get\\(\\\\\"balance\\\\\",\\\\\"?\\\\\"\\)}'\\)\")",
       "Bash(pkill -f \"uvicorn main:app\")",
       "Bash(curl -s http://localhost:3001/api/dashboard/demo_user)",
-      "Bash(python3 -c ':*)"
+      "Bash(python3 -c ':*)",
+      "Bash(npm view:*)"
     ]
   }
 }

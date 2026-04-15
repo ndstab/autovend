@@ -23,6 +23,7 @@ export default function Build() {
   const [_balance, setBalance] = useState<number | null>(null);
   const [_canBuild, setCanBuild] = useState(true);
   const [endpoint, setEndpoint] = useState<string | null>(null);
+  const [agentId, setAgentId] = useState<string | null>(null);
   const [buildCost, setBuildCost] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [testInput, setTestInput] = useState('{"city": "London"}');
@@ -34,11 +35,13 @@ export default function Build() {
   const hasStarted = useRef(false);
 
   const [steps, setSteps] = useState<BuildStep[]>([
+    { id: "research", label: "Researching via Exa — surfacing public APIs + data sources", status: "pending" },
     { id: "parse", label: "Sending to Locus wrapped Anthropic API", status: "pending" },
     { id: "codegen", label: "AI generating FastAPI service + Pydantic models", status: "pending" },
     { id: "deps", label: "Installing Python dependencies", status: "pending" },
     { id: "deploy", label: "Starting uvicorn runtime on isolated port", status: "pending" },
     { id: "x402", label: "Attaching x402 payment gate ($0.05/call)", status: "pending" },
+    { id: "identity", label: "Registering ERC-8004 agent identity on Locus", status: "pending" },
     { id: "live", label: "Endpoint live — accepting paid requests", status: "pending" },
   ]);
 
@@ -110,7 +113,7 @@ export default function Build() {
   function simulateSteps() {
     stepTimers.current.forEach(clearTimeout);
     stepTimers.current = [];
-    const delays = [500, 2000, 5000, 8000, 10000, 12000];
+    const delays = [500, 2000, 4000, 7000, 10000, 12000, 14000, 16000];
     steps.forEach((_, i) => {
       const t = setTimeout(() => {
         setSteps((prev) =>
@@ -153,12 +156,19 @@ export default function Build() {
         if (status.status === "live") {
           setApiStatus("live");
           setEndpoint(status.endpoint);
+          setAgentId(status.agent_id);
           setBuildCost(status.build_cost);
           setSteps((s) => s.map((step) => ({ ...step, status: "done" })));
+          stepTimers.current.forEach(clearTimeout);
           if (pollRef.current) clearInterval(pollRef.current);
         } else if (status.status === "failed") {
           setApiStatus("failed");
-          setError("Build pipeline failed");
+          setError("Build pipeline failed — your $1.50 was refunded");
+          setSteps((s) => s.map((step) => ({
+            ...step,
+            status: step.status === "active" ? "error" : step.status,
+          })));
+          stepTimers.current.forEach(clearTimeout);
           if (pollRef.current) clearInterval(pollRef.current);
         }
       } catch {
@@ -256,6 +266,17 @@ export default function Build() {
                   POST {endpoint || "http://localhost:3001/api/call/..."}
                 </div>
               </div>
+
+              {agentId && (
+                <div>
+                  <div className="text-text-dim text-xs mb-1">
+                    ERC-8004 agent identity
+                  </div>
+                  <div className="bg-bg border border-border px-3 py-2 text-text text-xs break-all font-mono">
+                    {agentId}
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-3 gap-4">
                 <div>

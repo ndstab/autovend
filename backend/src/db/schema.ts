@@ -194,6 +194,12 @@ export function recordEarning(earning: {
   `).run(earning.id, earning.api_id, earning.amount, earning.type, earning.caller || null);
 }
 
+/** Remove all build_cost earnings for an API — used when refunding a failed build. */
+export function deleteBuildCostEarnings(apiId: string) {
+  const database = getDb();
+  database.prepare("DELETE FROM earnings WHERE api_id = ? AND type = 'build_cost'").run(apiId);
+}
+
 export function getLiveApiIds(): string[] {
   const database = getDb();
   const rows = database.prepare("SELECT id FROM apis WHERE status = 'live'").all() as { id: string }[];

@@ -6,6 +6,13 @@ interface BuildResult {
   dockerfile: string;
   requirements: string;
   cost: number;
+  research?: ResearchResult[];
+}
+
+interface ResearchResult {
+  title: string;
+  url: string;
+  snippet: string;
 }
 
 const SYSTEM_PROMPT = `You are an expert API developer. Given a user's plain-English description of an API, generate a complete, working FastAPI service in Python.
@@ -33,23 +40,60 @@ STRICT RULES — violating any will break the deployment:
 
 
 export async function buildApi(description: string): Promise<BuildResult> {
-  // Try Locus wrapped Anthropic first (pays from Locus wallet)
-  const locusResult = await callViaLocus(description);
-  if (locusResult) return locusResult;
+  // Step A: Research via Exa — best effort; failure does not block codegen.
+  const research = await researchViaExa(description);
 
-  // Fallback to direct Anthropic API
-  return callDirectAnthropic(description);
+  // Step B: Try Locus wrapped Anthropic first (pays from Locus wallet)
+  const locusResult = await callViaLocus(description, research);
+  if (locusResult) return { ...locusResult, research };
+
+  // Step C: Fallback to direct Anthropic API
+  const direct = await callDirectAnthropic(description, research);
+  return { ...direct, research };
 }
 
-async function callViaLocus(description: string): Promise<BuildResult | null> {
+/**
+ * Exa research step. Queries Locus wrapped Exa for relevant context that the
+ * codegen model can cite — e.g. free public APIs, data formats, library hints.
+ * Returns [] on any error — never throws. The pipeline should still succeed
+ * without research context.
+ */
+async function researchViaExa(description: string): Promise<ResearchResult[]> {
+  try {
+    const query = `${description}\n\nfind: public APIs, free data sources, python libraries relevant to building this`;
+    const res = await locus.searchExa(query, 4);
+    if (!res.success || !res.data?.results) {
+      console.warn("[codegen] Exa research failed:", res.error);
+      return [];
+    }
+    return res.data.results.slice(0, 4).map((r) => ({
+      title: r.title || "",
+      url: r.url || "",
+      snippet: (r.text || "").slice(0, 400),
+    }));
+  } catch (err) {
+    console.warn("[codegen] Exa research threw:", err);
+    return [];
+  }
+}
+
+function buildUserPrompt(description: string, research: ResearchResult[]) {
+  const researchBlock = research.length
+    ? `\n\nResearch context (from Exa search — use if relevant, ignore if not):\n${research
+        .map((r, i) => `[${i + 1}] ${r.title} (${r.url})\n${r.snippet}`)
+        .join("\n\n")}\n`
+    : "";
+
+  return `Build a FastAPI service for this API:\n\n"${description}"${researchBlock}\n\nRespond with ONLY valid JSON, no markdown fences, no explanation.`;
+}
+
+async function callViaLocus(
+  description: string,
+  research: ResearchResult[]
+): Promise<BuildResult | null> {
   try {
     const response = await locus.callClaude(
-      [
-        {
-          role: "user",
-          content: `Build a FastAPI service for this API:\n\n"${description}"\n\nRespond with ONLY valid JSON, no markdown fences, no explanation.`,
-        },
-      ],
+      [{ role: "user", content: buildUserPrompt(description, research) }],
       "claude-sonnet-4-20250514",
       4096,
       SYSTEM_PROMPT
@@ -68,7 +112,10 @@ async function callViaLocus(description: string): Promise<BuildResult | null> {
   }
 }
 
-async function callDirectAnthropic(description: string): Promise<BuildResult> {
+async function callDirectAnthropic(
+  description: string,
+  research: ResearchResult[]
+): Promise<BuildResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     throw new Error("No AI available — set LOCUS_API_KEY (claw_...) or ANTHROPIC_API_KEY");
@@ -87,12 +134,7 @@ async function callDirectAnthropic(description: string): Promise<BuildResult> {
       model: "claude-sonnet-4-20250514",
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: `Build a FastAPI service for this API:\n\n"${description}"\n\nRespond with ONLY valid JSON, no markdown fences, no explanation.`,
-        },
-      ],
+      messages: [{ role: "user", content: buildUserPrompt(description, research) }],
     }),
   });
 
