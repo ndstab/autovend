@@ -9,8 +9,16 @@ import { spawn, spawnSync, type ChildProcess } from "child_process";
 import fs from "fs";
 import path from "path";
 
-/** Find the first available Python binary */
-function findPython(): string {
+/**
+ * Pick the Python binary to run the generated API with.
+ * If the API has its own venv (created in deploy.ts as a PEP 668 fallback),
+ * prefer that so isolated deps are used. Otherwise use system python.
+ */
+function findPython(apiDir?: string): string {
+  if (apiDir) {
+    const venvPython = path.join(apiDir, "venv", "bin", "python");
+    if (fs.existsSync(venvPython)) return venvPython;
+  }
   for (const bin of ["python3", "python", "python3.11", "python3.12"]) {
     const r = spawnSync(bin, ["--version"], { stdio: "ignore" });
     if (r.status === 0) return bin;
@@ -21,6 +29,33 @@ function findPython(): string {
 const APIS_DIR = process.env.APIS_DIR || "./data/apis";
 const PORT_START = 4000;
 const PORT_END = 4999;
+
+/**
+ * Resolve the public base URL that callers should hit for our proxy.
+ * Priority:
+ *   1. AUTOVEND_BASE_URL env var (explicit, preferred)
+ *   2. RAILWAY_PUBLIC_DOMAIN (set automatically by Railway)
+ *   3. An origin captured from an incoming HTTP request (setBaseUrl)
+ *   4. http://localhost:$PORT (local dev)
+ */
+let inferredBaseUrl: string | null = null;
+
+export function setBaseUrl(origin: string) {
+  if (!origin) return;
+  // Don't let request-host override an explicit env var
+  if (process.env.AUTOVEND_BASE_URL) return;
+  if (inferredBaseUrl) return;
+  inferredBaseUrl = origin.replace(/\/+$/, "");
+  console.log(`[executor] AUTOVEND_BASE_URL not set — inferred base URL from request: ${inferredBaseUrl}`);
+}
+
+export function getBaseUrl(): string {
+  if (process.env.AUTOVEND_BASE_URL) return process.env.AUTOVEND_BASE_URL.replace(/\/+$/, "");
+  const railway = process.env.RAILWAY_PUBLIC_DOMAIN;
+  if (railway) return `https://${railway.replace(/\/+$/, "")}`;
+  if (inferredBaseUrl) return inferredBaseUrl;
+  return `http://localhost:${process.env.PORT || 3001}`;
+}
 
 interface RunningApi {
   port: number;
@@ -84,7 +119,11 @@ export async function startApi(apiId: string): Promise<number> {
 
   console.log(`[executor] Starting API ${apiId} on port ${port}...`);
 
-  const pythonBin = findPython();
+  const pythonBin = findPython(dir);
+  // Make sure --user installed packages (from Strategy 1 in deploy.ts) are
+  // importable even when running from a different cwd. Python already adds
+  // the user site-packages automatically but some PEP 668 images strip it.
+  const env: NodeJS.ProcessEnv = { ...process.env, PYTHONUNBUFFERED: "1" };
   const proc = spawn(
     pythonBin,
     ["-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", String(port), "--log-level", "warning"],
@@ -92,7 +131,7 @@ export async function startApi(apiId: string): Promise<number> {
       cwd: dir,
       detached: false,
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, PYTHONUNBUFFERED: "1" },
+      env,
     }
   );
 

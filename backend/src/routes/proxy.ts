@@ -26,12 +26,18 @@ proxyRouter.get("/:apiId/spec", (req: Request, res: Response) => {
   const { apiId } = req.params as { apiId: string };
   const api = getDb()
     .prepare("SELECT * FROM apis WHERE id = ? AND status = 'live'")
-    .get(apiId) as { id: string; name: string; description: string; price_usd: number; endpoint: string } | undefined;
+    .get(apiId) as {
+      id: string; name: string; description: string; price_usd: number;
+      endpoint: string; input_schema: string | null; input_example: string | null;
+    } | undefined;
 
   if (!api) {
     res.status(404).json({ error: "API not found or not live" });
     return;
   }
+
+  const inputSchema = safeJson(api.input_schema);
+  const inputExample = safeJson(api.input_example);
 
   res.json({
     id: api.id,
@@ -39,6 +45,8 @@ proxyRouter.get("/:apiId/spec", (req: Request, res: Response) => {
     description: api.description,
     price_usd: api.price_usd,
     endpoint: api.endpoint,
+    input_schema: inputSchema,
+    input_example: inputExample,
     usage: {
       method: "POST",
       url: api.endpoint,
@@ -46,7 +54,7 @@ proxyRouter.get("/:apiId/spec", (req: Request, res: Response) => {
         "Content-Type": "application/json",
         "X-Locus-Key": "<your-locus-api-key>",
       },
-      body: { "...": "API-specific input fields" },
+      body: inputExample ?? { "...": "API-specific input fields" },
     },
     payment: {
       protocol: "x402",
@@ -56,6 +64,11 @@ proxyRouter.get("/:apiId/spec", (req: Request, res: Response) => {
     },
   });
 });
+
+function safeJson(s: string | null | undefined): unknown {
+  if (!s) return null;
+  try { return JSON.parse(s); } catch { return null; }
+}
 
 /**
  * POST /api/call/:apiId — main execution endpoint

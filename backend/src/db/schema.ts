@@ -31,17 +31,19 @@ export function initDb() {
     );
 
     CREATE TABLE IF NOT EXISTS apis (
-      id          TEXT PRIMARY KEY,
-      creator_id  TEXT NOT NULL,
-      name        TEXT NOT NULL,
-      description TEXT NOT NULL,
-      endpoint    TEXT,
-      price_usd   REAL DEFAULT 0.05,
-      wallet_id   TEXT,
-      agent_id    TEXT,
-      status      TEXT DEFAULT 'building',
-      build_cost  REAL DEFAULT 0,
-      created_at  INTEGER DEFAULT (unixepoch())
+      id            TEXT PRIMARY KEY,
+      creator_id    TEXT NOT NULL,
+      name          TEXT NOT NULL,
+      description   TEXT NOT NULL,
+      endpoint      TEXT,
+      price_usd     REAL DEFAULT 0.05,
+      wallet_id     TEXT,
+      agent_id      TEXT,
+      status        TEXT DEFAULT 'building',
+      build_cost    REAL DEFAULT 0,
+      input_schema  TEXT,
+      input_example TEXT,
+      created_at    INTEGER DEFAULT (unixepoch())
     );
 
     CREATE TABLE IF NOT EXISTS earnings (
@@ -69,6 +71,15 @@ export function initDb() {
     database.exec(`ALTER TABLE users ADD COLUMN balance REAL NOT NULL DEFAULT 0`);
   } catch {
     // column already exists — fine
+  }
+
+  // Migrate apis table: add input_schema / input_example / last_error if missing
+  for (const col of ["input_schema TEXT", "input_example TEXT", "last_error TEXT"]) {
+    try {
+      database.exec(`ALTER TABLE apis ADD COLUMN ${col}`);
+    } catch {
+      // column already exists — fine
+    }
   }
 
   console.log("Database initialized");
@@ -159,14 +170,18 @@ export function createApi(api: {
 
 export function updateApiStatus(id: string, status: string, updates?: {
   endpoint?: string; agent_id?: string; build_cost?: number;
+  input_schema?: string; input_example?: string; last_error?: string | null;
 }) {
   const database = getDb();
   const sets = ["status = ?"];
   const values: unknown[] = [status];
 
-  if (updates?.endpoint)                { sets.push("endpoint = ?");   values.push(updates.endpoint); }
-  if (updates?.agent_id)                { sets.push("agent_id = ?");   values.push(updates.agent_id); }
-  if (updates?.build_cost !== undefined){ sets.push("build_cost = ?"); values.push(updates.build_cost); }
+  if (updates?.endpoint)                 { sets.push("endpoint = ?");      values.push(updates.endpoint); }
+  if (updates?.agent_id)                 { sets.push("agent_id = ?");      values.push(updates.agent_id); }
+  if (updates?.build_cost !== undefined) { sets.push("build_cost = ?");    values.push(updates.build_cost); }
+  if (updates?.input_schema)             { sets.push("input_schema = ?");  values.push(updates.input_schema); }
+  if (updates?.input_example)            { sets.push("input_example = ?"); values.push(updates.input_example); }
+  if (updates?.last_error !== undefined) { sets.push("last_error = ?");    values.push(updates.last_error); }
 
   values.push(id);
   database.prepare(`UPDATE apis SET ${sets.join(", ")} WHERE id = ?`).run(...values);
@@ -174,12 +189,28 @@ export function updateApiStatus(id: string, status: string, updates?: {
 
 export function getApisByCreator(creatorId: string) {
   const database = getDb();
-  return database.prepare("SELECT * FROM apis WHERE creator_id = ? ORDER BY created_at DESC").all(creatorId);
+  return database.prepare(`
+    SELECT a.*,
+      COALESCE((SELECT COUNT(*) FROM earnings e
+                WHERE e.api_id = a.id AND e.type = 'call_revenue'), 0) AS call_count
+    FROM apis a
+    WHERE a.creator_id = ?
+    ORDER BY a.created_at DESC
+  `).all(creatorId);
 }
 
 export function getAllApis() {
   const database = getDb();
-  return database.prepare("SELECT * FROM apis WHERE status = 'live' ORDER BY created_at DESC").all();
+  // Sort by popularity (call count) first, then recency — so the marketplace
+  // surfaces actually-used APIs at the top.
+  return database.prepare(`
+    SELECT a.*,
+      COALESCE((SELECT COUNT(*) FROM earnings e
+                WHERE e.api_id = a.id AND e.type = 'call_revenue'), 0) AS call_count
+    FROM apis a
+    WHERE a.status = 'live'
+    ORDER BY call_count DESC, a.created_at DESC
+  `).all();
 }
 
 // ─── Earnings ────────────────────────────────────────────────

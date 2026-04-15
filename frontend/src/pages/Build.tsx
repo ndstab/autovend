@@ -25,8 +25,9 @@ export default function Build() {
   const [endpoint, setEndpoint] = useState<string | null>(null);
   const [agentId, setAgentId] = useState<string | null>(null);
   const [buildCost, setBuildCost] = useState(0);
+  const [inputSchema, setInputSchema] = useState<{ properties?: Record<string, { type?: string; description?: string }>; required?: string[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [testInput, setTestInput] = useState('{"city": "London"}');
+  const [testInput, setTestInput] = useState('{}');
   const [testResult, setTestResult] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [inputDesc, setInputDesc] = useState(description);
@@ -158,12 +159,29 @@ export default function Build() {
           setEndpoint(status.endpoint);
           setAgentId(status.agent_id);
           setBuildCost(status.build_cost);
+          // Pre-fill the try-it form with the codegen's example input
+          if (status.input_example) {
+            try {
+              const example = JSON.parse(status.input_example);
+              setTestInput(JSON.stringify(example, null, 2));
+            } catch {
+              // Keep default
+            }
+          }
+          if (status.input_schema) {
+            try { setInputSchema(JSON.parse(status.input_schema)); } catch { /* ignore */ }
+          }
           setSteps((s) => s.map((step) => ({ ...step, status: "done" })));
           stepTimers.current.forEach(clearTimeout);
           if (pollRef.current) clearInterval(pollRef.current);
         } else if (status.status === "failed") {
           setApiStatus("failed");
-          setError("Build pipeline failed — your $1.50 was refunded");
+          const reason = status.last_error?.trim();
+          setError(
+            reason
+              ? `Build failed: ${reason} — your $1.50 was refunded`
+              : "Build pipeline failed — your $1.50 was refunded"
+          );
           setSteps((s) => s.map((step) => ({
             ...step,
             status: step.status === "active" ? "error" : step.status,
@@ -328,12 +346,34 @@ export default function Build() {
           {/* Live test runner */}
           <Card>
             <div className="text-text-dim text-xs mb-3">try it — $0.05 per call</div>
+            {inputSchema?.properties && (
+              <div className="mb-3">
+                <div className="text-text-dim text-xs mb-1">expected fields</div>
+                <div className="bg-bg border border-border px-3 py-2 text-xs font-mono space-y-1">
+                  {Object.entries(inputSchema.properties).map(([key, field]) => {
+                    const required = new Set(inputSchema.required ?? []);
+                    return (
+                      <div key={key} className="flex gap-2 flex-wrap">
+                        <span className="text-accent">{key}</span>
+                        <span className="text-text-dim">:</span>
+                        <span className="text-text-mid">{field?.type || "any"}</span>
+                        {required.has(key) && <span className="text-error">*</span>}
+                        {field?.description && (
+                          <span className="text-text-dim">— {field.description}</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <div className="mb-3">
-              <div className="text-text-dim text-xs mb-1">request body</div>
+              <div className="text-text-dim text-xs mb-1">request body (JSON)</div>
               <textarea
                 value={testInput}
                 onChange={(e) => setTestInput(e.target.value)}
-                className="w-full bg-bg border border-border px-3 py-2 text-text text-xs font-mono resize-none outline-none focus:border-accent/50 min-h-[60px]"
+                className="w-full bg-bg border border-border px-3 py-2 text-text text-xs font-mono resize-none outline-none focus:border-accent/50 min-h-[80px]"
+                placeholder='{"key": "value"}'
               />
             </div>
             <button

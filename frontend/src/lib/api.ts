@@ -45,6 +45,9 @@ export function getBuildStatus(apiId: string) {
     endpoint: string | null;
     agent_id: string | null;
     build_cost: number;
+    input_schema: string | null;
+    input_example: string | null;
+    last_error: string | null;
   }>("GET", `/api/build/${apiId}/status`);
 }
 
@@ -61,6 +64,12 @@ export interface ApiRecord {
   agent_id: string | null;
   status: string;
   build_cost: number;
+  /** JSON-encoded input schema from codegen, null for legacy rows. */
+  input_schema: string | null;
+  /** JSON-encoded example request body (pre-fills the "try it" form). */
+  input_example: string | null;
+  /** Number of recorded paid/test calls — drives marketplace sort. */
+  call_count: number;
   created_at: number;
 }
 
